@@ -38,6 +38,28 @@ def get_account_for_user(db: Session, user_id: str):
     stmt = select(Account).where(Account.user_id == user_id)
     return db.execute(stmt).scalar_one_or_none()
 
+
+def perform_transfer(db: Session, user_id: str, amount: float) -> Account:
+    """
+    Wykonuje przelew (odejmuje saldo).
+    Waliduje środki i kwotę.
+    """
+    account = get_account_for_user(db, user_id)
+    if not account:
+        raise ValueError("Brak konta dla użytkownika.")
+
+    if amount <= 0:
+        raise ValueError("Kwota przelewu musi być dodatnia.")
+
+    if account.balance < amount:
+        raise ValueError("Niewystarczające środki na koncie.")
+
+    account.balance -= amount
+    db.commit()
+    db.refresh(account)
+
+    return account
+
 ```
 
 ===== FILE: ./app/config.py =====
@@ -91,7 +113,7 @@ if not GROQ_API_KEY:
 
 client = Groq(api_key=GROQ_API_KEY)
 
-DEFAULT_MODEL = "llama-3.1-8b-instant"  # aktualny, szybki model w Groq
+DEFAULT_MODEL = "llama-3.1-8b-instant"
 
 
 def detect_intent(message: str) -> str:
@@ -104,9 +126,6 @@ def detect_intent(message: str) -> str:
 
 
 def ask_llm(message: str, context: str) -> str:
-    """
-    Woła Groq Chat Completions i zwraca odpowiedź asystenta.
-    """
     prompt = (
         "Jesteś wirtualnym asystentem bankowym. "
         "Odpowiadasz krótko, jasno, po polsku.\n\n"
@@ -134,6 +153,7 @@ def ask_llm(message: str, context: str) -> str:
 ===== FILE: ./app/main.py =====
 
 ```python
+import re
 from fastapi import FastAPI, Depends
 from sqlalchemy.orm import Session
 
@@ -142,10 +162,26 @@ from . import banking
 from .schemas import ChatRequest, ChatResponse
 from .llm import detect_intent, ask_llm
 
-# Create database tables
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Collab Voice Assistant")
+
+
+def extract_amount(message: str) -> float:
+    """
+    Bardzo prosty parser kwoty z tekstu.
+    Szuka pierwszej liczby w tekście:
+    - 100
+    - 100,50
+    - 100.50
+    """
+    m = re.search(r"(\d+[,.]?\d*)", message.replace(" ", ""))
+    if not m:
+        return 0.0
+    try:
+        return float(m.group(1).replace(",", "."))
+    except ValueError:
+        return 0.0
 
 
 @app.on_event("startup")
@@ -165,14 +201,53 @@ def assistant_chat(req: ChatRequest, db: Session = Depends(get_db)):
     user = banking.get_user(db, req.user_id)
     account = banking.get_account_for_user(db, req.user_id)
 
+    # ---------- INTENCJA: PRZELEW ----------
+    if intent == "make_transfer":
+        if account is None:
+            return ChatResponse(
+                reply="Nie znaleziono konta dla tego użytkownika.",
+                intent=intent,
+            )
+
+        amount = extract_amount(req.message)
+        if amount <= 0:
+            return ChatResponse(
+                reply="Nie udało mi się rozpoznać poprawnej kwoty przelewu.",
+                intent=intent,
+            )
+
+        try:
+            updated = banking.perform_transfer(db, req.user_id, amount)
+        except ValueError as e:
+            # np. niewystarczające środki
+            return ChatResponse(reply=str(e), intent=intent)
+
+        reply = (
+            f"Przelew na kwotę {amount:.2f} {updated.currency} został wykonany. "
+            f"Twoje aktualne saldo to {updated.balance:.2f} {updated.currency} "
+            f"na koncie {updated.iban}."
+        )
+        return ChatResponse(reply=reply, intent=intent)
+
+    # ---------- INTENCJA: SPRAWDZENIE SALDA ----------
+    if intent == "check_balance":
+        if account is None:
+            reply = "Nie znaleziono konta dla tego użytkownika."
+        else:
+            reply = (
+                f"Twoje aktualne saldo wynosi {account.balance:.2f} {account.currency} "
+                f"na koncie {account.iban}."
+            )
+        return ChatResponse(reply=reply, intent=intent)
+
+    # ---------- POZOSTAŁE PYTANIA → LLM ----------
     context = ""
     if user:
         context += f"Użytkownik: {user.name}\n"
     if account:
-        context += f"Saldo: {account.balance} {account.currency} na {account.iban}\n"
+        context += f"Saldo: {account.balance:.2f} {account.currency} na koncie {account.iban}\n"
 
     reply = ask_llm(req.message, context)
-
     return ChatResponse(reply=reply, intent=intent)
 
 ```
@@ -180,26 +255,28 @@ def assistant_chat(req: ChatRequest, db: Session = Depends(get_db)):
 ===== FILE: ./app/models.py =====
 
 ```python
-from sqlalchemy import Column, String, Float
+from sqlalchemy import String, Float
+from sqlalchemy.orm import Mapped, mapped_column
+
 from .db import Base
 
 
 class User(Base):
     __tablename__ = "users"
 
-    id = Column(String, primary_key=True, index=True)
-    name = Column(String, nullable=False)
-    phone = Column(String, nullable=False)
+    id: Mapped[str] = mapped_column(String, primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    phone: Mapped[str] = mapped_column(String, nullable=False)
 
 
 class Account(Base):
     __tablename__ = "accounts"
 
-    id = Column(String, primary_key=True, index=True)
-    user_id = Column(String, nullable=False)
-    iban = Column(String, nullable=False)
-    balance = Column(Float, nullable=False)
-    currency = Column(String, default="PLN")
+    id: Mapped[str] = mapped_column(String, primary_key=True, index=True)
+    user_id: Mapped[str] = mapped_column(String, nullable=False)
+    iban: Mapped[str] = mapped_column(String, nullable=False)
+    balance: Mapped[float] = mapped_column(Float, nullable=False)
+    currency: Mapped[str] = mapped_column(String, default="PLN")
 
 ```
 
@@ -208,8 +285,6 @@ class Account(Base):
 ```python
 from pydantic import BaseModel
 from typing import Optional
-
-# ---- Assistant ----
 
 
 class ChatRequest(BaseModel):
@@ -220,9 +295,6 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     reply: str
     intent: Optional[str]
-
-
-# ---- Banking ----
 
 
 class UserOut(BaseModel):
@@ -260,8 +332,8 @@ async def main():
                 break
 
             resp = await client.post(API, json={"user_id": USER, "message": msg})
-
             data = resp.json()
+
             print(f"Asystent ({data['intent']}): {data['reply']}\n")
 
 
@@ -280,6 +352,78 @@ pydantic
 python-dotenv
 groq
 httpx
+
+```
+
+===== FILE: ./voice_agent.py =====
+
+```python
+import asyncio
+import httpx
+import speech_recognition as sr
+import pyttsx3
+
+API = "http://127.0.0.1:8000/assistant/chat"
+USER = "user-1"
+
+
+def init_tts():
+    engine = pyttsx3.init()
+    # Możesz tu dopasować głos / szybkość
+    rate = engine.getProperty("rate")
+    engine.setProperty("rate", rate - 20)  # trochę wolniej
+    return engine
+
+
+async def send_to_backend(text: str) -> str:
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(API, json={"user_id": USER, "message": text})
+        resp.raise_for_status()
+        data = resp.json()
+        print(f"Asystent ({data['intent']}): {data['reply']}\n")
+        return data["reply"]
+
+
+async def main():
+    recognizer = sr.Recognizer()
+    tts_engine = init_tts()
+
+    print("Asystent bankowy (VOICE). Powiedz 'koniec' żeby zakończyć.\n")
+
+    while True:
+        # --- NAGRYWANIE GŁOSU ---
+        with sr.Microphone() as source:
+            print("Nasłuchuję... (mów po polsku)")
+            recognizer.adjust_for_ambient_noise(source, duration=0.5)
+            audio = recognizer.listen(source)
+
+        try:
+            # --- STT: MOWA -> TEKST ---
+            text = recognizer.recognize_google(audio, language="pl-PL")
+            text = text.strip()
+            print(f"Ty (rozpoznane): {text}")
+
+        except sr.UnknownValueError:
+            print("Nie zrozumiałem, powtórz proszę.\n")
+            continue
+        except sr.RequestError as e:
+            print(f"Błąd usługi rozpoznawania mowy: {e}")
+            break
+
+        if text.lower() in ["koniec", "exit", "zakończ", "stop"]:
+            print("Kończę rozmowę.")
+            break
+
+        # --- WYŚLIJ DO BACKENDU ---
+        reply = await send_to_backend(text)
+
+        # --- TTS: TEKST -> MOWA ---
+        tts_engine.say(reply)
+        tts_engine.runAndWait()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
 
 ```
 
