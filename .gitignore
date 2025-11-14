@@ -71,3 +71,5 @@ mongo_data/
 # Generated docs or temp files
 docs/_build/
 tmp/
+project_files.txt
+*.db
