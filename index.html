@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html>
+  <body>
+    <h2>Call AI (Bank Assistant)</h2>
+    <button id="callBtn">Call AI</button>
+
+    <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.15.0/dist/twilio.min.js"></script>
+
+    <script>
+      (function () {
+        let device = null;
+        let activeCall = null;
+
+        async function initAndCall() {
+          try {
+            const res = await fetch("http://127.0.0.1:8000/twilio/token");
+            const data = await res.json();
+            const token = data.token;
+
+            if (!device) {
+              device = new Twilio.Device(token, {
+                logLevel: "debug",
+                codecPreferences: ["opus", "pcmu"],
+              });
+
+              device.on("error", (error) => {
+                console.error("Twilio Device error:", error);
+              });
+
+              device.on("registered", () => {
+                console.log("Device registered – connecting to TwiML App...");
+                if (!activeCall) {
+                  activeCall = device.connect();
+                }
+              });
+
+              device.on("connect", (call) => {
+                console.log("Połączenie zestawione:", call);
+                activeCall = call;
+                call.on("disconnect", () => {
+                  console.log("Call disconnected");
+                  activeCall = null;
+                });
+              });
+
+              device.on("disconnect", () => {
+                console.log("Device disconnect event");
+                activeCall = null;
+              });
+
+              await device.register();
+            } else {
+              if (!activeCall) {
+                console.log("Device already exists – connecting...");
+                activeCall = device.connect();
+              } else {
+                console.log("Call already active – nie dzwonię drugi raz");
+              }
+            }
+          } catch (e) {
+            console.error("Init/call error:", e);
+          }
+        }
+
+        const btn = document.getElementById("callBtn");
+        btn.addEventListener("click", () => {
+          initAndCall();
+        });
+      })();
+    </script>
+  </body>
+</html>

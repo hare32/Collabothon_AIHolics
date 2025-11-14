@@ -1,9 +1,11 @@
+from typing import Optional
+
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 from .models import User, Account
 
 
-def seed_data(db: Session):
+def seed_data(db: Session) -> None:
     """Dodaje podstawowego użytkownika i konto, jeśli baza jest pusta."""
     if db.execute(select(User)).first():
         return
@@ -23,12 +25,12 @@ def seed_data(db: Session):
     db.commit()
 
 
-def get_user(db: Session, user_id: str):
+def get_user(db: Session, user_id: str) -> Optional[User]:
     stmt = select(User).where(User.id == user_id)
     return db.execute(stmt).scalar_one_or_none()
 
 
-def get_account_for_user(db: Session, user_id: str):
+def get_account_for_user(db: Session, user_id: str) -> Optional[Account]:
     stmt = select(Account).where(Account.user_id == user_id)
     return db.execute(stmt).scalar_one_or_none()
 
@@ -39,7 +41,7 @@ def perform_transfer(db: Session, user_id: str, amount: float) -> Account:
     Waliduje środki i kwotę.
     """
     account = get_account_for_user(db, user_id)
-    if not account:
+    if account is None:
         raise ValueError("Brak konta dla użytkownika.")
 
     if amount <= 0:
