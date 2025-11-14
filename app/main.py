@@ -15,6 +15,9 @@ from .db import Base, engine, get_db
 from . import banking
 from .schemas import ChatRequest, ChatResponse
 from .llm import detect_intent, ask_llm
+from fastapi.responses import HTMLResponse
+from pathlib import Path
+
 
 # ---- DB init ----
 Base.metadata.create_all(bind=engine)
@@ -144,6 +147,17 @@ def assistant_chat(req: ChatRequest, db: Session = Depends(get_db)):
 
 
 # ---------- TWILIO: TOKEN DLA PRZEGLĄDARKI ----------
+
+
+@app.get("/", response_class=HTMLResponse)
+def serve_index():
+    """
+    Zwraca plik index.html (frontend Twilio Voice SDK).
+    """
+    index_path = Path(
+        "index.html"
+    )  # jeśli leży obok main.py, zmień na Path("app/index.html")
+    return index_path.read_text(encoding="utf-8")
 
 
 @app.get("/twilio/token")

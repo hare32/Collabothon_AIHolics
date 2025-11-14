@@ -4,12 +4,14 @@ Mode: full | Max bytes per file: 200000 (0 = no limit)
 ===== FILE: ./app/banking.py =====
 
 ```python
+from typing import Optional
+
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 from .models import User, Account
 
 
-def seed_data(db: Session):
+def seed_data(db: Session) -> None:
     """Dodaje podstawowego użytkownika i konto, jeśli baza jest pusta."""
     if db.execute(select(User)).first():
         return
@@ -29,12 +31,12 @@ def seed_data(db: Session):
     db.commit()
 
 
-def get_user(db: Session, user_id: str):
+def get_user(db: Session, user_id: str) -> Optional[User]:
     stmt = select(User).where(User.id == user_id)
     return db.execute(stmt).scalar_one_or_none()
 
 
-def get_account_for_user(db: Session, user_id: str):
+def get_account_for_user(db: Session, user_id: str) -> Optional[Account]:
     stmt = select(Account).where(Account.user_id == user_id)
     return db.execute(stmt).scalar_one_or_none()
 
@@ -45,7 +47,7 @@ def perform_transfer(db: Session, user_id: str, amount: float) -> Account:
     Waliduje środki i kwotę.
     """
     account = get_account_for_user(db, user_id)
-    if not account:
+    if account is None:
         raise ValueError("Brak konta dla użytkownika.")
 
     if amount <= 0:
@@ -155,6 +157,7 @@ def ask_llm(message: str, context: str) -> str:
 ```python
 import os
 import re
+from typing import Optional, Tuple
 
 from fastapi import FastAPI, Depends, Form
 from fastapi.middleware.cors import CORSMiddleware
@@ -169,6 +172,9 @@ from .db import Base, engine, get_db
 from . import banking
 from .schemas import ChatRequest, ChatResponse
 from .llm import detect_intent, ask_llm
+from fastapi.responses import HTMLResponse
+from pathlib import Path
+
 
 # ---- DB init ----
 Base.metadata.create_all(bind=engine)
@@ -212,7 +218,7 @@ def extract_amount(message: str) -> float:
 
 
 @app.on_event("startup")
-def startup():
+def startup() -> None:
     with next(get_db()) as db:
         banking.seed_data(db)
 
@@ -225,7 +231,9 @@ def health():
 # ---------- WSPÓLNA LOGIKA: PRZETWARZANIE WIADOMOŚCI ----------
 
 
-def process_message(message: str, user_id: str, db: Session) -> tuple[str, str | None]:
+def process_message(
+    message: str, user_id: str, db: Session
+) -> Tuple[str, Optional[str]]:
     """
     Wspólna logika asystenta:
     - intencje
@@ -298,6 +306,17 @@ def assistant_chat(req: ChatRequest, db: Session = Depends(get_db)):
 # ---------- TWILIO: TOKEN DLA PRZEGLĄDARKI ----------
 
 
+@app.get("/", response_class=HTMLResponse)
+def serve_index():
+    """
+    Zwraca plik index.html (frontend Twilio Voice SDK).
+    """
+    index_path = Path(
+        "index.html"
+    )  # jeśli leży obok main.py, zmień na Path("app/index.html")
+    return index_path.read_text(encoding="utf-8")
+
+
 @app.get("/twilio/token")
 def twilio_token():
     """
@@ -314,7 +333,11 @@ def twilio_token():
     voice_grant = VoiceGrant(outgoing_application_sid=TWIML_APP_SID)
     token.add_grant(voice_grant)
 
-    return {"token": token.to_jwt()}
+    jwt_token = token.to_jwt()
+    if isinstance(jwt_token, bytes):
+        jwt_token = jwt_token.decode("utf-8")
+
+    return {"token": jwt_token}
 
 
 # ---------- TWILIO: WEBHOOK VOICE (TwiML) ----------
@@ -322,7 +345,7 @@ def twilio_token():
 
 @app.post("/twilio/voice")
 def twilio_voice(
-    SpeechResult: str | None = Form(default=None),
+    SpeechResult: Optional[str] = Form(default=None),
     db: Session = Depends(get_db),
 ):
     """
@@ -553,6 +576,7 @@ pydantic
 python-dotenv
 groq
 httpx
+python-multipart
 
 ```
 
