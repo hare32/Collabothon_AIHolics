@@ -1,3 +1,5 @@
+from typing import List, Tuple, Optional
+
 from groq import Groq
 from .config import GROQ_API_KEY
 
@@ -9,21 +11,33 @@ client = Groq(api_key=GROQ_API_KEY)
 DEFAULT_MODEL = "llama-3.1-8b-instant"
 
 
-def detect_intent(message: str) -> str:
+def detect_intent(message: str, history: Optional[List[Tuple[str, str]]] = None) -> str:
     """
-    Wykrywa intencję użytkownika za pomocą LLM.
+    Wykrywa intencję użytkownika za pomocą LLM, uwzględniając historię rozmowy.
     Zwraca jeden z trzech stringów:
     - "make_transfer"  -> użytkownik chce zrobić przelew
     - "check_balance"  -> użytkownik chce sprawdzić saldo / stan konta
     - "other"          -> wszystko inne
     """
 
+    # z historii bierzemy kilka ostatnich wypowiedzi, żeby model wiedział, o czym była mowa
+    history_text = ""
+    if history:
+        last_turns = history[-6:]  # max ~3 wymiany
+        lines = []
+        for role, msg in last_turns:
+            who = "Klient" if role == "user" else "Asystent"
+            lines.append(f"{who}: {msg}")
+        history_text = "\n".join(lines)
+
     system_prompt = (
         "Jesteś klasyfikatorem intencji w asystencie bankowym.\n"
-        "Klient mówi po polsku. Na podstawie wypowiedzi klienta zwróć TYLKO jedno słowo:\n"
+        "Klient mówi po polsku. Na podstawie rozmowy zwróć TYLKO jedno słowo:\n"
         "- make_transfer  jeśli chce wykonać przelew lub zapłacić komuś pieniądze\n"
         "- check_balance  jeśli pyta o saldo, stan konta, ile ma pieniędzy\n"
         "- other          jeśli wypowiedź nie dotyczy przelewu ani salda\n\n"
+        "Bierz pod uwagę historię, np. gdy wcześniej klient mówił o przelewie,\n"
+        "a teraz podaje tylko kwotę ('50 zł'), to intencja nadal jest make_transfer.\n\n"
         "Przykłady:\n"
         "U: Daj sąsiadowi 50 zł\n"
         "A: make_transfer\n"
@@ -38,12 +52,21 @@ def detect_intent(message: str) -> str:
         "Nie dodawaj żadnych wyjaśnień, komentarzy ani dodatkowego tekstu."
     )
 
+    if history_text:
+        user_prompt = (
+            f"Oto fragment dotychczasowej rozmowy:\n{history_text}\n\n"
+            f"Ostatnie zdanie klienta: {message}\n"
+            "Na tej podstawie zwróć tylko etykietę intencji."
+        )
+    else:
+        user_prompt = message
+
     try:
         completion = client.chat.completions.create(
             model=DEFAULT_MODEL,
             messages=[
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": message},
+                {"role": "user", "content": user_prompt},
             ],
             temperature=0.0,
             max_tokens=5,
