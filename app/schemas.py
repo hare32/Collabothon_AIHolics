@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional, Literal
+from typing import Optional
 
 # ---- Assistant ----
 
@@ -11,7 +11,7 @@ class ChatRequest(BaseModel):
 
 class ChatResponse(BaseModel):
     reply: str
-    intent: Optional[Literal["check_balance", "make_transfer", "other"]]
+    intent: Optional[str]
 
 
 # ---- Banking ----

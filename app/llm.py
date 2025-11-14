@@ -6,7 +6,7 @@ if not GROQ_API_KEY:
 
 client = Groq(api_key=GROQ_API_KEY)
 
-DEFAULT_MODEL = "llama-3.1-8b-instant"
+DEFAULT_MODEL = "llama-3.1-8b-instant"  # aktualny, szybki model w Groq
 
 
 def detect_intent(message: str) -> str:
@@ -20,7 +20,7 @@ def detect_intent(message: str) -> str:
 
 def ask_llm(message: str, context: str) -> str:
     """
-    Woła Groq Chat Completions (llama3-8b-8192) i zwraca odpowiedź asystenta.
+    Woła Groq Chat Completions i zwraca odpowiedź asystenta.
     """
     prompt = (
         "Jesteś wirtualnym asystentem bankowym. "
@@ -41,5 +41,5 @@ def ask_llm(message: str, context: str) -> str:
         temperature=0.3,
     )
 
-    # Groq SDK ma takie samo API jak OpenAI – message.content
-    return completion.choices[0].message.content.strip()
+    content = completion.choices[0].message.content or ""
+    return content.strip()
