@@ -1,0 +1,285 @@
+Collecting project files from: /home/jedre/gitrepos/Collabothon_AIHolics
+Mode: full | Max bytes per file: 200000 (0 = no limit)
+
+===== FILE: ./app/banking.py =====
+
+```python
+from sqlalchemy.orm import Session
+from sqlalchemy import select
+from .models import User, Account
+
+
+def seed_data(db: Session):
+    """Dodaje podstawowego użytkownika i konto, jeśli baza jest pusta."""
+    if db.execute(select(User)).first():
+        return
+
+    user = User(id="user-1", name="Jan Kowalski", phone="+48123123123")
+    db.add(user)
+
+    acc = Account(
+        id="acc-1",
+        user_id="user-1",
+        iban="PL00123456789012345678901234",
+        balance=2500.00,
+        currency="PLN",
+    )
+    db.add(acc)
+
+    db.commit()
+
+
+def get_user(db: Session, user_id: str):
+    stmt = select(User).where(User.id == user_id)
+    return db.execute(stmt).scalar_one_or_none()
+
+
+def get_account_for_user(db: Session, user_id: str):
+    stmt = select(Account).where(Account.user_id == user_id)
+    return db.execute(stmt).scalar_one_or_none()
+
+```
+
+===== FILE: ./app/config.py =====
+
+```python
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./app.db")
+
+```
+
+===== FILE: ./app/db.py =====
+
+```python
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker, declarative_base
+
+from .config import DATABASE_URL
+
+engine = create_engine(
+    DATABASE_URL,
+    connect_args={"check_same_thread": False} if "sqlite" in DATABASE_URL else {},
+)
+
+SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
+
+Base = declarative_base()
+
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+```
+
+===== FILE: ./app/llm.py =====
+
+```python
+from groq import Groq
+from .config import GROQ_API_KEY
+
+if not GROQ_API_KEY:
+    raise RuntimeError("Brak GROQ_API_KEY w .env – ustaw go przed uruchomieniem.")
+
+client = Groq(api_key=GROQ_API_KEY)
+
+DEFAULT_MODEL = "llama3-8b-8192"  # dobry, szybki, darmowy model w Groq
+
+
+def detect_intent(message: str) -> str:
+    msg = message.lower()
+    if "saldo" in msg or "stan konta" in msg:
+        return "check_balance"
+    if "przelew" in msg or "przelać" in msg:
+        return "make_transfer"
+    return "other"
+
+
+def ask_llm(message: str, context: str) -> str:
+    """
+    Woła Groq Chat Completions (llama3-8b-8192) i zwraca odpowiedź asystenta.
+    """
+    prompt = (
+        "Jesteś wirtualnym asystentem bankowym. "
+        "Odpowiadasz krótko, jasno, po polsku.\n\n"
+        f"Kontekst klienta:\n{context}\n\n"
+        f"Pytanie klienta: {message}\n"
+    )
+
+    completion = client.chat.completions.create(
+        model=DEFAULT_MODEL,
+        messages=[
+            {
+                "role": "system",
+                "content": "Jesteś asystentem bankowym mówiącym po polsku.",
+            },
+            {"role": "user", "content": prompt},
+        ],
+        temperature=0.3,
+    )
+
+    # Groq SDK ma takie samo API jak OpenAI – message.content
+    return completion.choices[0].message.content.strip()
+
+```
+
+===== FILE: ./app/main.py =====
+
+```python
+from fastapi import FastAPI, Depends
+from sqlalchemy.orm import Session
+
+from .db import Base, engine, get_db
+from . import banking
+from .schemas import ChatRequest, ChatResponse
+from .llm import detect_intent, ask_llm
+
+# Create database tables
+Base.metadata.create_all(bind=engine)
+
+app = FastAPI(title="Collab Voice Assistant")
+
+
+@app.on_event("startup")
+def startup():
+    with next(get_db()) as db:
+        banking.seed_data(db)
+
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+
+@app.post("/assistant/chat", response_model=ChatResponse)
+def assistant_chat(req: ChatRequest, db: Session = Depends(get_db)):
+    intent = detect_intent(req.message)
+    user = banking.get_user(db, req.user_id)
+    account = banking.get_account_for_user(db, req.user_id)
+
+    context = ""
+    if user:
+        context += f"Użytkownik: {user.name}\n"
+    if account:
+        context += f"Saldo: {account.balance} {account.currency} na {account.iban}\n"
+
+    reply = ask_llm(req.message, context)
+
+    return ChatResponse(reply=reply, intent=intent)
+
+```
+
+===== FILE: ./app/models.py =====
+
+```python
+from sqlalchemy import Column, String, Float
+from .db import Base
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(String, primary_key=True, index=True)
+    name = Column(String, nullable=False)
+    phone = Column(String, nullable=False)
+
+
+class Account(Base):
+    __tablename__ = "accounts"
+
+    id = Column(String, primary_key=True, index=True)
+    user_id = Column(String, nullable=False)
+    iban = Column(String, nullable=False)
+    balance = Column(Float, nullable=False)
+    currency = Column(String, default="PLN")
+
+```
+
+===== FILE: ./app/schemas.py =====
+
+```python
+from pydantic import BaseModel
+from typing import Optional, Literal
+
+# ---- Assistant ----
+
+
+class ChatRequest(BaseModel):
+    user_id: str
+    message: str
+
+
+class ChatResponse(BaseModel):
+    reply: str
+    intent: Optional[Literal["check_balance", "make_transfer", "other"]]
+
+
+# ---- Banking ----
+
+
+class UserOut(BaseModel):
+    id: str
+    name: str
+    phone: str
+
+
+class AccountOut(BaseModel):
+    id: str
+    user_id: str
+    iban: str
+    balance: float
+    currency: str
+
+```
+
+===== FILE: ./cli_client.py =====
+
+```python
+import httpx
+import asyncio
+
+API = "http://127.0.0.1:8000/assistant/chat"
+USER = "user-1"
+
+
+async def main():
+    print("Asystent bankowy (CLI). Napisz 'exit' aby wyjść.\n")
+
+    async with httpx.AsyncClient() as client:
+        while True:
+            msg = input("Ty: ")
+            if msg.lower() == "exit":
+                break
+
+            resp = await client.post(API, json={"user_id": USER, "message": msg})
+
+            data = resp.json()
+            print(f"Asystent ({data['intent']}): {data['reply']}\n")
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+
+```
+
+===== FILE: ./requirements.txt =====
+
+```
+fastapi
+uvicorn[standard]
+sqlalchemy
+pydantic
+python-dotenv
+openai
+httpx
+
+```
+

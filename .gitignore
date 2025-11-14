@@ -1,0 +1,73 @@
+# --- Python ---
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pdb
+*.egg-info/
+*.egg
+*.log
+
+# --- Virtual environments ---
+venv/
+.venv/
+env/
+ENV/
+
+# --- Build / distribution ---
+build/
+dist/
+pip-wheel-metadata/
+*.whl
+
+# --- FastAPI / Uvicorn ---
+# Uvicorn reload artifacts
+.reload/
+uvicorn.log
+
+# --- Cache ---
+.cache/
+*.cache
+pytest_cache/
+.mypy_cache/
+.pytest_cache/
+
+# --- Coverage ---
+htmlcov/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+
+# --- IDE / Editor files ---
+# VSCode
+.vscode/
+
+# PyCharm / JetBrains
+.idea/
+*.iml
+
+# --- OS files ---
+.DS_Store
+Thumbs.db
+
+# --- Docker ---
+# (Jeżeli używasz Dockera)
+docker-compose.override.yml
+*.pid
+
+# --- Environment variables ---
+.env
+.env.*
+*.envrc
+
+# --- MongoDB data (jeśli trzymasz lokalnie) ---
+data/
+mongo_data/
+
+# --- Project-specific ---
+# Generated docs or temp files
+docs/_build/
+tmp/
