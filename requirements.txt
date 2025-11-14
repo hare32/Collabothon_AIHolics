@@ -5,3 +5,5 @@ pydantic
 python-dotenv
 groq
 httpx
+python-multipart
+twilio

@@ -15,8 +15,8 @@ async def main():
                 break
 
             resp = await client.post(API, json={"user_id": USER, "message": msg})
-
             data = resp.json()
+
             print(f"Asystent ({data['intent']}): {data['reply']}\n")
 
 

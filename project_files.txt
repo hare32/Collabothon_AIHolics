@@ -1,15 +1,241 @@
 Collecting project files from: /home/jedre/gitrepos/Collabothon_AIHolics
 Mode: full | Max bytes per file: 200000 (0 = no limit)
 
+===== FILE: ./app/api/chat.py =====
+
+```python
+from fastapi import APIRouter, Depends
+from sqlalchemy.orm import Session
+
+from ..db import get_db
+from ..schemas import ChatRequest, ChatResponse
+from ..assistant import process_message
+
+router = APIRouter(prefix="/assistant", tags=["assistant"])
+
+
+@router.post("/chat", response_model=ChatResponse)
+def assistant_chat(req: ChatRequest, db: Session = Depends(get_db)):
+    reply, intent = process_message(req.message, req.user_id, db)
+    return ChatResponse(reply=reply, intent=intent)
+
+```
+
+===== FILE: ./app/api/twilio.py =====
+
+```python
+from typing import Optional
+
+from fastapi import APIRouter, Depends, Form
+from fastapi.responses import Response, JSONResponse
+from sqlalchemy.orm import Session
+
+from twilio.jwt.access_token import AccessToken
+from twilio.jwt.access_token.grants import VoiceGrant
+from twilio.twiml.voice_response import VoiceResponse, Gather
+
+from ..db import get_db
+from ..assistant import process_message
+from ..config import (
+    TWILIO_ACCOUNT_SID,
+    TWILIO_API_KEY,
+    TWILIO_API_SECRET,
+    TWIML_APP_SID,
+    BACKEND_USER_ID,
+)
+
+router = APIRouter(prefix="/twilio", tags=["twilio"])
+
+
+@router.get("/token")
+def twilio_token():
+    """
+    Token do Twilio Voice SDK (WebRTC w przeglądarce).
+    """
+    if not (
+        TWILIO_ACCOUNT_SID and TWILIO_API_KEY and TWILIO_API_SECRET and TWIML_APP_SID
+    ):
+        return JSONResponse(
+            status_code=500,
+            content={"error": "Brak konfiguracji Twilio w zmiennych środowiskowych."},
+        )
+
+    token = AccessToken(
+        TWILIO_ACCOUNT_SID, TWILIO_API_KEY, TWILIO_API_SECRET, identity="browser_user"
+    )
+    voice_grant = VoiceGrant(outgoing_application_sid=TWIML_APP_SID)
+    token.add_grant(voice_grant)
+
+    jwt_token = token.to_jwt()
+    if isinstance(jwt_token, bytes):
+        jwt_token = jwt_token.decode("utf-8")
+
+    return {"token": jwt_token}
+
+
+@router.post("/voice")
+def twilio_voice(
+    SpeechResult: Optional[str] = Form(default=None),
+    db: Session = Depends(get_db),
+):
+    """
+    Webhook Twilio Voice – rozmowa telefoniczna z asystentem bankowym.
+    """
+    resp = VoiceResponse()
+
+    # Pierwsze wejście – brak rozpoznanego tekstu, prosimy o wypowiedź
+    if not SpeechResult:
+        gather = Gather(
+            input="speech",
+            language="pl-PL",
+            action="/twilio/voice",
+            method="POST",
+            speech_timeout="auto",
+        )
+        gather.say(
+            "Cześć, tu asystent bankowy. "
+            "Możesz zapytać o saldo albo zlecić przelew.",
+            language="pl-PL",
+        )
+        resp.append(gather)
+
+        resp.say("Nie usłyszałem nic. Rozłączam się.", language="pl-PL")
+        return Response(content=str(resp), media_type="application/xml")
+
+    # Mamy tekst rozpoznany przez Twilio STT
+    print("USER SAID:", SpeechResult)
+
+    reply, intent = process_message(SpeechResult, BACKEND_USER_ID, db)
+    print("BACKEND ANSWER:", reply, "| INTENT:", intent)
+
+    # Odpowiedź głosowa
+    resp.say(reply, language="pl-PL")
+
+    # Kolejna runda rozmowy
+    gather = Gather(
+        input="speech",
+        language="pl-PL",
+        action="/twilio/voice",
+        method="POST",
+        speech_timeout="auto",
+    )
+    gather.say("Możesz zadać kolejne pytanie.", language="pl-PL")
+    resp.append(gather)
+
+    return Response(content=str(resp), media_type="application/xml")
+
+```
+
+===== FILE: ./app/api/__init__.py =====
+
+```python
+
+```
+
+===== FILE: ./app/assistant.py =====
+
+```python
+from typing import Optional, Tuple
+import re
+
+from sqlalchemy.orm import Session
+
+from . import banking
+from .llm import detect_intent, ask_llm
+
+
+def extract_amount(message: str) -> float:
+    """
+    Bardzo prosty parser kwoty z tekstu.
+    Szuka pierwszej liczby w tekście:
+    - 100
+    - 100,50
+    - 100.50
+    """
+    m = re.search(r"(\d+[,.]?\d*)", message.replace(" ", ""))
+    if not m:
+        return 0.0
+    try:
+        return float(m.group(1).replace(",", "."))
+    except ValueError:
+        return 0.0
+
+
+def process_message(
+    message: str, user_id: str, db: Session
+) -> Tuple[str, Optional[str]]:
+    """
+    Wspólna logika asystenta:
+    - intencje
+    - przelew
+    - saldo
+    - fallback do LLM
+
+    Zwraca (reply, intent).
+    """
+    intent = detect_intent(message)
+    user = banking.get_user(db, user_id)
+    account = banking.get_account_for_user(db, user_id)
+
+    # ---------- INTENCJA: PRZELEW ----------
+    if intent == "make_transfer":
+        if account is None:
+            return "Nie znaleziono konta dla tego użytkownika.", intent
+
+        amount = extract_amount(message)
+        if amount <= 0:
+            return "Nie udało mi się rozpoznać poprawnej kwoty przelewu.", intent
+
+        try:
+            updated = banking.perform_transfer(db, user_id, amount)
+        except ValueError as e:
+            # np. niewystarczające środki
+            return str(e), intent
+
+        reply = (
+            f"Przelew na kwotę {amount:.2f} {updated.currency} został wykonany. "
+            f"Twoje aktualne saldo to {updated.balance:.2f} {updated.currency} "
+            f"na koncie {updated.iban}."
+        )
+        return reply, intent
+
+    # ---------- INTENCJA: SPRAWDZENIE SALDA ----------
+    if intent == "check_balance":
+        if account is None:
+            reply = "Nie znaleziono konta dla tego użytkownika."
+        else:
+            reply = (
+                f"Twoje aktualne saldo wynosi {account.balance:.2f} {account.currency} "
+                f"na koncie {account.iban}."
+            )
+        return reply, intent
+
+    # ---------- POZOSTAŁE PYTANIA → LLM ----------
+    context = ""
+    if user:
+        context += f"Użytkownik: {user.name}\n"
+    if account:
+        context += (
+            f"Saldo: {account.balance:.2f} {account.currency} "
+            f"na koncie {account.iban}\n"
+        )
+
+    reply = ask_llm(message, context)
+    return reply, intent
+
+```
+
 ===== FILE: ./app/banking.py =====
 
 ```python
+from typing import Optional
+
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 from .models import User, Account
 
 
-def seed_data(db: Session):
+def seed_data(db: Session) -> None:
     """Dodaje podstawowego użytkownika i konto, jeśli baza jest pusta."""
     if db.execute(select(User)).first():
         return
@@ -29,14 +255,36 @@ def seed_data(db: Session):
     db.commit()
 
 
-def get_user(db: Session, user_id: str):
+def get_user(db: Session, user_id: str) -> Optional[User]:
     stmt = select(User).where(User.id == user_id)
     return db.execute(stmt).scalar_one_or_none()
 
 
-def get_account_for_user(db: Session, user_id: str):
+def get_account_for_user(db: Session, user_id: str) -> Optional[Account]:
     stmt = select(Account).where(Account.user_id == user_id)
     return db.execute(stmt).scalar_one_or_none()
+
+
+def perform_transfer(db: Session, user_id: str, amount: float) -> Account:
+    """
+    Wykonuje przelew (odejmuje saldo).
+    Waliduje środki i kwotę.
+    """
+    account = get_account_for_user(db, user_id)
+    if account is None:
+        raise ValueError("Brak konta dla użytkownika.")
+
+    if amount <= 0:
+        raise ValueError("Kwota przelewu musi być dodatnia.")
+
+    if account.balance < amount:
+        raise ValueError("Niewystarczające środki na koncie.")
+
+    account.balance -= amount
+    db.commit()
+    db.refresh(account)
+
+    return account
 
 ```
 
@@ -50,6 +298,14 @@ load_dotenv()
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./app.db")
+
+TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
+TWILIO_API_KEY = os.getenv("TWILIO_API_KEY")
+TWILIO_API_SECRET = os.getenv("TWILIO_API_SECRET")
+TWIML_APP_SID = os.getenv("TWIML_APP_SID")
+
+# domyślny użytkownik backendu (na razie na sztywno)
+BACKEND_USER_ID = os.getenv("BACKEND_USER_ID", "user-1")
 
 ```
 
@@ -91,7 +347,7 @@ if not GROQ_API_KEY:
 
 client = Groq(api_key=GROQ_API_KEY)
 
-DEFAULT_MODEL = "llama3-8b-8192"  # dobry, szybki, darmowy model w Groq
+DEFAULT_MODEL = "llama-3.1-8b-instant"
 
 
 def detect_intent(message: str) -> str:
@@ -104,9 +360,6 @@ def detect_intent(message: str) -> str:
 
 
 def ask_llm(message: str, context: str) -> str:
-    """
-    Woła Groq Chat Completions (llama3-8b-8192) i zwraca odpowiedź asystenta.
-    """
     prompt = (
         "Jesteś wirtualnym asystentem bankowym. "
         "Odpowiadasz krótko, jasno, po polsku.\n\n"
@@ -126,30 +379,42 @@ def ask_llm(message: str, context: str) -> str:
         temperature=0.3,
     )
 
-    # Groq SDK ma takie samo API jak OpenAI – message.content
-    return completion.choices[0].message.content.strip()
+    content = completion.choices[0].message.content or ""
+    return content.strip()
 
 ```
 
 ===== FILE: ./app/main.py =====
 
 ```python
-from fastapi import FastAPI, Depends
-from sqlalchemy.orm import Session
+from pathlib import Path
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
 
 from .db import Base, engine, get_db
 from . import banking
-from .schemas import ChatRequest, ChatResponse
-from .llm import detect_intent, ask_llm
+from .api import chat, twilio
 
-# Create database tables
+# inicjalizacja bazy
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Collab Voice Assistant")
 
+# CORS – Twilio Voice SDK w przeglądarce
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # na demo może zostać *, do produkcji zawęź
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 @app.on_event("startup")
-def startup():
+def startup() -> None:
+    # seed danych demo
     with next(get_db()) as db:
         banking.seed_data(db)
 
@@ -159,47 +424,47 @@ def health():
     return {"status": "ok"}
 
 
-@app.post("/assistant/chat", response_model=ChatResponse)
-def assistant_chat(req: ChatRequest, db: Session = Depends(get_db)):
-    intent = detect_intent(req.message)
-    user = banking.get_user(db, req.user_id)
-    account = banking.get_account_for_user(db, req.user_id)
+@app.get("/", response_class=HTMLResponse)
+def serve_index():
+    """
+    Zwraca index.html (frontend Twilio Voice SDK).
+    Zakładam, że index.html leży w katalogu głównym projektu.
+    """
+    index_path = Path("index.html")
+    return index_path.read_text(encoding="utf-8")
 
-    context = ""
-    if user:
-        context += f"Użytkownik: {user.name}\n"
-    if account:
-        context += f"Saldo: {account.balance} {account.currency} na {account.iban}\n"
 
-    reply = ask_llm(req.message, context)
-
-    return ChatResponse(reply=reply, intent=intent)
+# rejestracja routerów HTTP i Twilio
+app.include_router(chat.router)
+app.include_router(twilio.router)
 
 ```
 
 ===== FILE: ./app/models.py =====
 
 ```python
-from sqlalchemy import Column, String, Float
+from sqlalchemy import String, Float
+from sqlalchemy.orm import Mapped, mapped_column
+
 from .db import Base
 
 
 class User(Base):
     __tablename__ = "users"
 
-    id = Column(String, primary_key=True, index=True)
-    name = Column(String, nullable=False)
-    phone = Column(String, nullable=False)
+    id: Mapped[str] = mapped_column(String, primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    phone: Mapped[str] = mapped_column(String, nullable=False)
 
 
 class Account(Base):
     __tablename__ = "accounts"
 
-    id = Column(String, primary_key=True, index=True)
-    user_id = Column(String, nullable=False)
-    iban = Column(String, nullable=False)
-    balance = Column(Float, nullable=False)
-    currency = Column(String, default="PLN")
+    id: Mapped[str] = mapped_column(String, primary_key=True, index=True)
+    user_id: Mapped[str] = mapped_column(String, nullable=False)
+    iban: Mapped[str] = mapped_column(String, nullable=False)
+    balance: Mapped[float] = mapped_column(Float, nullable=False)
+    currency: Mapped[str] = mapped_column(String, default="PLN")
 
 ```
 
@@ -207,9 +472,7 @@ class Account(Base):
 
 ```python
 from pydantic import BaseModel
-from typing import Optional, Literal
-
-# ---- Assistant ----
+from typing import Optional
 
 
 class ChatRequest(BaseModel):
@@ -219,10 +482,7 @@ class ChatRequest(BaseModel):
 
 class ChatResponse(BaseModel):
     reply: str
-    intent: Optional[Literal["check_balance", "make_transfer", "other"]]
-
-
-# ---- Banking ----
+    intent: Optional[str]
 
 
 class UserOut(BaseModel):
@@ -260,13 +520,91 @@ async def main():
                 break
 
             resp = await client.post(API, json={"user_id": USER, "message": msg})
-
             data = resp.json()
+
             print(f"Asystent ({data['intent']}): {data['reply']}\n")
 
 
 if __name__ == "__main__":
     asyncio.run(main())
+
+```
+
+===== FILE: ./index.html =====
+
+```html
+<!DOCTYPE html>
+<html>
+  <body>
+    <h2>Call AI (Bank Assistant)</h2>
+    <button id="callBtn">Call AI</button>
+
+    <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.15.0/dist/twilio.min.js"></script>
+
+    <script>
+      (function () {
+        let device = null;
+        let activeCall = null;
+
+        async function initAndCall() {
+          try {
+            const res = await fetch("http://127.0.0.1:8000/twilio/token");
+            const data = await res.json();
+            const token = data.token;
+
+            if (!device) {
+              device = new Twilio.Device(token, {
+                logLevel: "debug",
+                codecPreferences: ["opus", "pcmu"],
+              });
+
+              device.on("error", (error) => {
+                console.error("Twilio Device error:", error);
+              });
+
+              device.on("registered", () => {
+                console.log("Device registered – connecting to TwiML App...");
+                if (!activeCall) {
+                  activeCall = device.connect();
+                }
+              });
+
+              device.on("connect", (call) => {
+                console.log("Połączenie zestawione:", call);
+                activeCall = call;
+                call.on("disconnect", () => {
+                  console.log("Call disconnected");
+                  activeCall = null;
+                });
+              });
+
+              device.on("disconnect", () => {
+                console.log("Device disconnect event");
+                activeCall = null;
+              });
+
+              await device.register();
+            } else {
+              if (!activeCall) {
+                console.log("Device already exists – connecting...");
+                activeCall = device.connect();
+              } else {
+                console.log("Call already active – nie dzwonię drugi raz");
+              }
+            }
+          } catch (e) {
+            console.error("Init/call error:", e);
+          }
+        }
+
+        const btn = document.getElementById("callBtn");
+        btn.addEventListener("click", () => {
+          initAndCall();
+        });
+      })();
+    </script>
+  </body>
+</html>
 
 ```
 
@@ -278,8 +616,103 @@ uvicorn[standard]
 sqlalchemy
 pydantic
 python-dotenv
-openai
+groq
 httpx
+python-multipart
+twilio
+
+```
+
+===== FILE: ./voice_agent.py =====
+
+```python
+import asyncio
+from typing import Any, Optional
+
+import httpx
+import speech_recognition as sr
+import pyttsx3
+
+API = "http://127.0.0.1:8000/assistant/chat"
+USER = "user-1"
+
+
+def init_tts() -> Optional[pyttsx3.Engine]:
+    try:
+        engine = pyttsx3.init()
+    except Exception as e:
+        print(f"[WARN] Nie udało się zainicjować TTS: {e}")
+        return None
+
+    rate_obj = engine.getProperty("rate")
+    if isinstance(rate_obj, (int, float)):
+        rate = int(rate_obj)
+        engine.setProperty("rate", rate - 20)
+    return engine
+
+
+async def send_to_backend(text: str) -> str:
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(API, json={"user_id": USER, "message": text})
+        resp.raise_for_status()
+        data = resp.json()
+        print(f"Asystent ({data['intent']}): {data['reply']}\n")
+        return data["reply"]
+
+
+async def main() -> None:
+    recognizer = sr.Recognizer()
+    tts_engine = init_tts()
+
+    print("Asystent bankowy (VOICE). Powiedz 'koniec' żeby zakończyć.\n")
+
+    while True:
+        # --- NAGRYWANIE GŁOSU ---
+        try:
+            with sr.Microphone() as source:
+                print("Nasłuchuję... (mów po polsku)")
+                recognizer.adjust_for_ambient_noise(source, duration=1)
+                audio = recognizer.listen(source)
+        except OSError as e:
+            print(
+                "[ERROR] Brak domyślnego urządzenia wejściowego audio w tym środowisku.\n"
+                f"Szczegóły: {e}\n"
+                "To typowe w WSL – nie ma dostępu do mikrofonu.\n"
+                "Uruchom tego klienta na systemie z mikrofonem (np. natywny Linux/Windows) "
+                "albo użyj wersji plikowej/webowej."
+            )
+            return
+
+        try:
+            # --- STT: MOWA -> TEKST ---
+            rec: Any = recognizer
+            text = rec.recognize_google(audio, language="pl-PL")
+            text = text.strip()
+            print(f"Ty (rozpoznane): {text}")
+        except sr.UnknownValueError:
+            print("Nie zrozumiałem, powtórz proszę.\n")
+            continue
+        except sr.RequestError as e:
+            print(f"Błąd usługi rozpoznawania mowy: {e}")
+            break
+
+        if text.lower() in ["koniec", "exit", "zakończ", "stop"]:
+            print("Kończę rozmowę.")
+            break
+
+        # --- WYŚLIJ DO BACKENDU ---
+        reply = await send_to_backend(text)
+
+        # --- TTS: TEKST -> MOWA (jeśli działa) ---
+        if tts_engine is not None:
+            tts_engine.say(reply)
+            tts_engine.runAndWait()
+        else:
+            print("[INFO] TTS wyłączony (brak silnika).")
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
 
 ```
 

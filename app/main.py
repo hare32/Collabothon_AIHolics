@@ -1,19 +1,31 @@
-from fastapi import FastAPI, Depends
-from sqlalchemy.orm import Session
+from pathlib import Path
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
 
 from .db import Base, engine, get_db
 from . import banking
-from .schemas import ChatRequest, ChatResponse
-from .llm import detect_intent, ask_llm
+from .api import chat, twilio
 
-# Create database tables
+# inicjalizacja bazy
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Collab Voice Assistant")
 
+# CORS – Twilio Voice SDK w przeglądarce
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # na demo może zostać *, do produkcji zawęź
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 @app.on_event("startup")
-def startup():
+def startup() -> None:
+    # seed danych demo
     with next(get_db()) as db:
         banking.seed_data(db)
 
@@ -23,18 +35,16 @@ def health():
     return {"status": "ok"}
 
 
-@app.post("/assistant/chat", response_model=ChatResponse)
-def assistant_chat(req: ChatRequest, db: Session = Depends(get_db)):
-    intent = detect_intent(req.message)
-    user = banking.get_user(db, req.user_id)
-    account = banking.get_account_for_user(db, req.user_id)
+@app.get("/", response_class=HTMLResponse)
+def serve_index():
+    """
+    Zwraca index.html (frontend Twilio Voice SDK).
+    Zakładam, że index.html leży w katalogu głównym projektu.
+    """
+    index_path = Path("index.html")
+    return index_path.read_text(encoding="utf-8")
 
-    context = ""
-    if user:
-        context += f"Użytkownik: {user.name}\n"
-    if account:
-        context += f"Saldo: {account.balance} {account.currency} na {account.iban}\n"
 
-    reply = ask_llm(req.message, context)
-
-    return ChatResponse(reply=reply, intent=intent)
+# rejestracja routerów HTTP i Twilio
+app.include_router(chat.router)
+app.include_router(twilio.router)

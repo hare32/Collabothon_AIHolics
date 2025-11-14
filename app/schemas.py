@@ -1,8 +1,6 @@
 from pydantic import BaseModel
 from typing import Optional
 
-# ---- Assistant ----
-
 
 class ChatRequest(BaseModel):
     user_id: str
@@ -12,9 +10,6 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     reply: str
     intent: Optional[str]
-
-
-# ---- Banking ----
 
 
 class UserOut(BaseModel):
