@@ -31,3 +31,25 @@ def get_user(db: Session, user_id: str):
 def get_account_for_user(db: Session, user_id: str):
     stmt = select(Account).where(Account.user_id == user_id)
     return db.execute(stmt).scalar_one_or_none()
+
+
+def perform_transfer(db: Session, user_id: str, amount: float) -> Account:
+    """
+    Wykonuje przelew (odejmuje saldo).
+    Waliduje środki i kwotę.
+    """
+    account = get_account_for_user(db, user_id)
+    if not account:
+        raise ValueError("Brak konta dla użytkownika.")
+
+    if amount <= 0:
+        raise ValueError("Kwota przelewu musi być dodatnia.")
+
+    if account.balance < amount:
+        raise ValueError("Niewystarczające środki na koncie.")
+
+    account.balance -= amount
+    db.commit()
+    db.refresh(account)
+
+    return account

@@ -6,7 +6,7 @@ if not GROQ_API_KEY:
 
 client = Groq(api_key=GROQ_API_KEY)
 
-DEFAULT_MODEL = "llama-3.1-8b-instant"  # aktualny, szybki model w Groq
+DEFAULT_MODEL = "llama-3.1-8b-instant"
 
 
 def detect_intent(message: str) -> str:
@@ -19,9 +19,6 @@ def detect_intent(message: str) -> str:
 
 
 def ask_llm(message: str, context: str) -> str:
-    """
-    Woła Groq Chat Completions i zwraca odpowiedź asystenta.
-    """
     prompt = (
         "Jesteś wirtualnym asystentem bankowym. "
         "Odpowiadasz krótko, jasno, po polsku.\n\n"

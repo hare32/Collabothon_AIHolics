@@ -1,20 +1,22 @@
-from sqlalchemy import Column, String, Float
+from sqlalchemy import String, Float
+from sqlalchemy.orm import Mapped, mapped_column
+
 from .db import Base
 
 
 class User(Base):
     __tablename__ = "users"
 
-    id = Column(String, primary_key=True, index=True)
-    name = Column(String, nullable=False)
-    phone = Column(String, nullable=False)
+    id: Mapped[str] = mapped_column(String, primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    phone: Mapped[str] = mapped_column(String, nullable=False)
 
 
 class Account(Base):
     __tablename__ = "accounts"
 
-    id = Column(String, primary_key=True, index=True)
-    user_id = Column(String, nullable=False)
-    iban = Column(String, nullable=False)
-    balance = Column(Float, nullable=False)
-    currency = Column(String, default="PLN")
+    id: Mapped[str] = mapped_column(String, primary_key=True, index=True)
+    user_id: Mapped[str] = mapped_column(String, nullable=False)
+    iban: Mapped[str] = mapped_column(String, nullable=False)
+    balance: Mapped[float] = mapped_column(Float, nullable=False)
+    currency: Mapped[str] = mapped_column(String, default="PLN")
