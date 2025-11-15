@@ -13,8 +13,7 @@
 
         async function initAndCall() {
           try {
-            // Używamy ścieżki względnej - działa lokalnie i za ngrok
-            const res = await fetch("/twilio/token");
+            const res = await fetch("http://localhost:8000/twilio/token");
             const data = await res.json();
             const token = data.token;
 
