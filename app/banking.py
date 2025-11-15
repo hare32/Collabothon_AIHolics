@@ -16,7 +16,7 @@ def seed_data(db: Session) -> None:
     acc = Account(
         id="acc-1",
         user_id="user-1",
-        iban="PL00123456789012345678901234",
+        iban="4321",
         balance=2500.00,
         currency="PLN",
     )
@@ -42,7 +42,7 @@ def perform_transfer(
     recipient_details: str = "Nieznany odbiorca (asystent głosowy)",
 ) -> Account:
     """
-    Wykonuje przelew (odejmuje saldo) I twprzy zapis transakcji.
+    Wykonuje przelew (odejmuje saldo) i tworzy zapis transakcji.
     Waliduje środki i kwotę.
     """
     account = get_account_for_user(db, user_id)
@@ -70,13 +70,22 @@ def perform_transfer(
     return account
 
 
-def get_transactions_for_user(db: Session, user_id: str) -> Sequence[Transaction]:
+def get_transactions_for_user(
+    db: Session,
+    user_id: str,
+    limit: Optional[int] = None,
+) -> Sequence[Transaction]:
     """
     Pobiera historię transakcji, gdzie użytkownik był NADAWCĄ.
+    Jeśli podano limit, zwraca maksymalnie 'limit' najnowszych transakcji.
     """
     stmt = (
         select(Transaction)
         .where(Transaction.sender_id == user_id)
         .order_by(Transaction.timestamp.desc())
     )
+
+    if limit is not None:
+        stmt = stmt.limit(limit)
+
     return db.execute(stmt).scalars().all()

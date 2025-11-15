@@ -43,6 +43,17 @@ def extract_amount(message: str) -> float:
         return 0.0
 
 
+def _format_amount_pln(amount: float) -> str:
+    """
+    Prosty formatter kwoty w złotówkach do użycia w mowie.
+    Np. 8 -> '8 złotych', 200 -> '200 złotych', 12.50 -> '12.50 złotego'.
+    Na potrzeby demo nie robimy idealnej fleksji językowej.
+    """
+    if amount.is_integer():
+        return f"{int(amount)} złotych"
+    return f"{amount:.2f} złotego"
+
+
 def process_message(
     message: str, user_id: str, db: Session
 ) -> Tuple[str, Optional[str]]:
@@ -51,6 +62,7 @@ def process_message(
     - intencje
     - przelew
     - saldo
+    - historia przelewów
     - fallback do LLM
 
     Zwraca (reply, intent).
@@ -113,6 +125,26 @@ def process_message(
                 f"Twoje aktualne saldo wynosi {account.balance:.2f} {account.currency} "
                 f"na koncie {account.iban}."
             )
+        return _store_history(user_id, message, reply), intent
+
+    # ---------- INTENCJA: HISTORIA PRZELEWÓW ----------
+    if intent == "show_history":
+        # Dla prostoty: pokażmy 3 ostatnie przelewy
+        transactions = banking.get_transactions_for_user(db, user_id, limit=3)
+
+        if not transactions:
+            reply = "Nie znalazłem żadnych przelewów w historii."
+            return _store_history(user_id, message, reply), intent
+
+        # Budujemy tekst podobny do tego, który podałeś w przykładzie
+        lines: List[str] = []
+        for t in transactions:
+            kwota_txt = _format_amount_pln(t.amount)
+            # Np. "Przelew na kwotę 8 złotych do moja starej"
+            lines.append(f"Przelew na kwotę {kwota_txt} do {t.recipient_details}")
+
+        # Każdy przelew w nowej linii, żeby ładnie się czytało przez TTS
+        reply = "Oto Twoje ostatnie przelewy:\n" + "\n".join(lines)
         return _store_history(user_id, message, reply), intent
 
     # ---------- POZOSTAŁE PYTANIA → LLM ----------

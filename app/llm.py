@@ -14,10 +14,11 @@ DEFAULT_MODEL = "llama-3.1-8b-instant"
 def detect_intent(message: str, history: Optional[List[Tuple[str, str]]] = None) -> str:
     """
     Wykrywa intencję użytkownika za pomocą LLM, uwzględniając historię rozmowy.
-    Zwraca jeden z trzech stringów:
-    - "make_transfer"  -> użytkownik chce zrobić przelew
-    - "check_balance"  -> użytkownik chce sprawdzić saldo / stan konta
-    - "other"          -> wszystko inne
+    Zwraca jeden z czterech stringów:
+    - "make_transfer"   -> użytkownik chce zrobić przelew
+    - "check_balance"   -> użytkownik chce sprawdzić saldo / stan konta
+    - "show_history"    -> użytkownik chce poznać historię przelewów / ostatnie transakcje
+    - "other"           -> wszystko inne
     """
 
     # z historii bierzemy kilka ostatnich wypowiedzi, żeby model wiedział, o czym była mowa
@@ -35,7 +36,8 @@ def detect_intent(message: str, history: Optional[List[Tuple[str, str]]] = None)
         "Klient mówi po polsku. Na podstawie rozmowy zwróć TYLKO jedno słowo:\n"
         "- make_transfer  jeśli chce wykonać przelew lub zapłacić komuś pieniądze\n"
         "- check_balance  jeśli pyta o saldo, stan konta, ile ma pieniędzy\n"
-        "- other          jeśli wypowiedź nie dotyczy przelewu ani salda\n\n"
+        "- show_history   jeśli pyta o historię przelewów, ostatnie transakcje\n"
+        "- other          jeśli wypowiedź nie dotyczy powyższych\n\n"
         "Bierz pod uwagę historię, np. gdy wcześniej klient mówił o przelewie,\n"
         "a teraz podaje tylko kwotę ('50 zł'), to intencja nadal jest make_transfer.\n\n"
         "Przykłady:\n"
@@ -47,6 +49,10 @@ def detect_intent(message: str, history: Optional[List[Tuple[str, str]]] = None)
         "A: check_balance\n"
         "U: Jakie jest moje saldo?\n"
         "A: check_balance\n"
+        "U: Jakie były moje ostatnie przelewy?\n"
+        "A: show_history\n"
+        "U: Pokaż historię transakcji\n"
+        "A: show_history\n"
         "U: Opowiedz dowcip\n"
         "A: other\n"
         "Nie dodawaj żadnych wyjaśnień, komentarzy ani dodatkowego tekstu."
@@ -79,10 +85,13 @@ def detect_intent(message: str, history: Optional[List[Tuple[str, str]]] = None)
         mapping = {
             "make_transfer": "make_transfer",
             "check_balance": "check_balance",
+            "show_history": "show_history",
             "other": "other",
             # na wszelki wypadek, gdyby zwrócił po polsku
             "przelew": "make_transfer",
             "saldo": "check_balance",
+            "historia": "show_history",
+            "historia_przelewów": "show_history",
         }
 
         return mapping.get(intent_raw, "other")
