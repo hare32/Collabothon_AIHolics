@@ -10,5 +10,5 @@ router = APIRouter(prefix="/assistant", tags=["assistant"])
 
 @router.post("/chat", response_model=ChatResponse)
 def assistant_chat(req: ChatRequest, db: Session = Depends(get_db)):
-    reply, intent = process_message(req.message, req.user_id, db)
+    reply, intent, _ = process_message(req.message, req.user_id, db)
     return ChatResponse(reply=reply, intent=intent)
