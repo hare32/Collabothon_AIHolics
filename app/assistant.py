@@ -1,46 +1,17 @@
-from typing import Optional, Tuple, Dict, List
-import re
-from collections import defaultdict
+# app/assistant.py
+from typing import Optional, Tuple, List
 
 from sqlalchemy.orm import Session
 
 from . import banking
-from .llm import detect_intent, ask_llm
-
-# ======= PROSTA HISTORIA ROZMOWY PER USER =======
-# Lista par: ("user" | "assistant", tekst)
-conversation_history: Dict[str, List[Tuple[str, str]]] = defaultdict(list)
-
-
-def _store_history(user_id: str, user_msg: str, reply: str) -> str:
-    """
-    Zapisuje ostatnią wypowiedź użytkownika i odpowiedź asystenta
-    w historii dla danego usera. Trzymamy tylko ostatnie ~10 wymian.
-    """
-    history = conversation_history[user_id]
-    history.append(("user", user_msg))
-    history.append(("assistant", reply))
-    # przycinamy, żeby nie rosło w nieskończoność
-    if len(history) > 20:  # 10 wymian user–assistant
-        del history[:-20]
-    return reply
-
-
-def extract_amount(message: str) -> float:
-    """
-    Bardzo prosty parser kwoty z tekstu.
-    Szuka pierwszej liczby w tekście:
-    - 100
-    - 100,50
-    - 100.50
-    """
-    m = re.search(r"(\d+[,.]?\d*)", message.replace(" ", ""))
-    if not m:
-        return 0.0
-    try:
-        return float(m.group(1).replace(",", "."))
-    except ValueError:
-        return 0.0
+from .llm import detect_intent, ask_llm, extract_recipient
+from .assistant_utils import (
+    conversation_history,
+    store_history,
+    extract_amount,
+    extract_history_limit,
+    format_amount_pln,
+)
 
 
 def process_message(
@@ -51,6 +22,7 @@ def process_message(
     - intencje
     - przelew
     - saldo
+    - historia przelewów
     - fallback do LLM
 
     Zwraca (reply, intent).
@@ -69,7 +41,7 @@ def process_message(
     if intent == "make_transfer":
         if account is None:
             reply = "Nie znaleziono konta dla tego użytkownika."
-            return _store_history(user_id, message, reply), intent
+            return store_history(user_id, message, reply), intent
 
         amount = extract_amount(message)
         if amount <= 0:
@@ -77,21 +49,53 @@ def process_message(
                 "Rozumiem, że chcesz zrobić przelew, ale nie rozpoznałem kwoty. "
                 "Podaj proszę kwotę, np. '50 zł'."
             )
-            return _store_history(user_id, message, reply), intent
+            return store_history(user_id, message, reply), intent
+
+        # Wyciągamy nazwę odbiorcy z mowy za pomocą LLM (np. 'mama', 'wnuczek')
+        recipient_label = extract_recipient(message, history)
+        if not recipient_label:
+            reply = (
+                "Nie zrozumiałem, do kogo ma być przelew. "
+                "Powiedz na przykład 'wyślij 50 zł do mamy'."
+            )
+            return store_history(user_id, message, reply), intent
+
+        # Mapujemy to na zapisany kontakt (mama -> Barbara Kowalska, itd.)
+        contact = banking.resolve_contact(db, user_id, recipient_label)
+
+        if not contact:
+            reply = (
+                f"Nie znam odbiorcy '{recipient_label}'. "
+                "Dodaj go proszę w aplikacji bankowej jako zapisany kontakt."
+            )
+            return store_history(user_id, message, reply), intent
+
+        recipient_name = contact.full_name
+        recipient_iban = contact.iban
+        title = contact.default_title or f"Przelew do {contact.full_name}"
+        pretty_label = f"{contact.full_name} ({contact.nickname})"
 
         try:
-            updated = banking.perform_transfer(db, user_id, amount)
+            updated = banking.perform_transfer(
+                db,
+                user_id=user_id,
+                amount=amount,
+                recipient_name=recipient_name,
+                recipient_iban=recipient_iban,
+                title=title,
+            )
         except ValueError as e:
             # np. niewystarczające środki
             reply = str(e)
-            return _store_history(user_id, message, reply), intent
+            return store_history(user_id, message, reply), intent
 
         reply = (
-            f"Przelew na kwotę {amount:.2f} {updated.currency} został wykonany. "
+            f"Przelew na kwotę {amount:.2f} {updated.currency} został wykonany "
+            f"do odbiorcy: {pretty_label}. "
             f"Twoje aktualne saldo to {updated.balance:.2f} {updated.currency} "
             f"na koncie {updated.iban}."
         )
-        return _store_history(user_id, message, reply), intent
+        return store_history(user_id, message, reply), intent
 
     # ---------- INTENCJA: SPRAWDZENIE SALDA ----------
     if intent == "check_balance":
@@ -102,7 +106,28 @@ def process_message(
                 f"Twoje aktualne saldo wynosi {account.balance:.2f} {account.currency} "
                 f"na koncie {account.iban}."
             )
-        return _store_history(user_id, message, reply), intent
+        return store_history(user_id, message, reply), intent
+
+    # ---------- INTENCJA: HISTORIA PRZELEWÓW ----------
+    if intent == "show_history":
+        # ile ostatnich przelewów? (domyślnie 3)
+        limit = extract_history_limit(message, default=3, max_limit=10)
+        transactions = banking.get_transactions_for_user(db, user_id, limit=limit)
+
+        if not transactions:
+            reply = "Nie znalazłem żadnych przelewów w historii."
+            return store_history(user_id, message, reply), intent
+
+        lines: List[str] = []
+        for t in transactions:
+            kwota_txt = format_amount_pln(t.amount)
+            lines.append(
+                f"Przelew na kwotę {kwota_txt} do {t.recipient_name}, "
+                f"tytuł: {t.title}"
+            )
+
+        reply = "Oto Twoje ostatnie przelewy:\n" + "\n".join(lines)
+        return store_history(user_id, message, reply), intent
 
     # ---------- POZOSTAŁE PYTANIA → LLM ----------
     context = ""
@@ -115,4 +140,4 @@ def process_message(
         )
 
     reply = ask_llm(message, context)
-    return _store_history(user_id, message, reply), intent
+    return store_history(user_id, message, reply), intent
