@@ -14,7 +14,13 @@ def seed_demo_data(db: Session) -> None:
         return
 
     # --- USER ---
-    user = User(id="user-1", name="John Smith", phone="+48123123123")
+    user = User(
+        id="user-1",
+        name="John Smith",
+        pesel="12345678901",  # demo data for auth
+        pin_code="4321",  # demo PIN for auth
+        phone="+48123123123",
+    )
     db.add(user)
 
     # --- ACCOUNT (start at 4000, then subtract transactions => ~2500) ---

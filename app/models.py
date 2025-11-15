@@ -12,6 +12,9 @@ class User(Base):
 
     id: Mapped[str] = mapped_column(String, primary_key=True, index=True)
     name: Mapped[str] = mapped_column(String, nullable=False)
+    # NEW: fields needed for voice auth
+    pesel: Mapped[str] = mapped_column(String, nullable=False)
+    pin_code: Mapped[str] = mapped_column(String, nullable=False)
     phone: Mapped[str] = mapped_column(String, nullable=False)
 
 
