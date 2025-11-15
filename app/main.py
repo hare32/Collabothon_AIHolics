@@ -8,6 +8,7 @@ from fastapi.responses import HTMLResponse
 from .db import Base, engine, get_db
 from .seed import seed_demo_data
 from .api import chat, twilio, banking as banking_api
+from .api import auth_voice  # NEW
 
 Base.metadata.create_all(bind=engine)
 
@@ -45,6 +46,10 @@ def serve_index():
     return index_path.read_text(encoding="utf-8")
 
 
+# NEW: auth router – nie zmienia istniejących ścieżek
+app.include_router(auth_voice.router)
+
+# STARE – bez zmian
 app.include_router(chat.router)
 app.include_router(twilio.router)
 app.include_router(banking_api.router)

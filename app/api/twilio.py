@@ -1,5 +1,4 @@
 from typing import Optional
-
 from fastapi import APIRouter, Depends, Form
 from fastapi.responses import Response, JSONResponse
 from sqlalchemy.orm import Session
@@ -17,47 +16,52 @@ from ..config import (
     TWIML_APP_SID,
     BACKEND_USER_ID,
 )
+from ..banking import get_user
 
 router = APIRouter(prefix="/twilio", tags=["twilio"])
 
 
 @router.get("/token")
 def twilio_token():
-    """
-    Token for Twilio Voice SDK (browser WebRTC).
-    """
-    if not (
-        TWILIO_ACCOUNT_SID and TWILIO_API_KEY and TWILIO_API_SECRET and TWIML_APP_SID
-    ):
+    """Returns a Twilio Voice SDK token for browser calls."""
+    if not all([TWILIO_ACCOUNT_SID, TWILIO_API_KEY, TWILIO_API_SECRET, TWIML_APP_SID]):
         return JSONResponse(
             status_code=500,
-            content={"error": "Missing Twilio configuration in environment variables."},
+            content={"error": "Missing Twilio configuration."},
         )
 
     token = AccessToken(
-        TWILIO_ACCOUNT_SID, TWILIO_API_KEY, TWILIO_API_SECRET, identity="browser_user"
+        TWILIO_ACCOUNT_SID,
+        TWILIO_API_KEY,
+        TWILIO_API_SECRET,
+        identity="web_user",
     )
-    voice_grant = VoiceGrant(outgoing_application_sid=TWIML_APP_SID)
-    token.add_grant(voice_grant)
+    token.add_grant(VoiceGrant(outgoing_application_sid=TWIML_APP_SID))
 
-    jwt_token = token.to_jwt()
-    if isinstance(jwt_token, bytes):
-        jwt_token = jwt_token.decode("utf-8")
+    jwt = token.to_jwt()
+    if isinstance(jwt, bytes):
+        jwt = jwt.decode()
 
-    return {"token": jwt_token}
+    return {"token": jwt}
 
 
 @router.post("/voice")
 def twilio_voice(
-    SpeechResult: Optional[str] = Form(default=None),
+    SpeechResult: Optional[str] = Form(None),
     db: Session = Depends(get_db),
 ):
-    """
-    Twilio Voice webhook – phone conversation with the banking assistant.
-    """
+    """Main post-auth banking conversational endpoint."""
+    user_id = BACKEND_USER_ID
+    user = get_user(db, user_id)
+
     resp = VoiceResponse()
 
-    # First entry – no recognized text yet, ask user to speak
+    if not user:
+        resp.say("System error: user not found.")
+        resp.hangup()
+        return Response(str(resp), media_type="application/xml")
+
+    # First entry → greet user
     if not SpeechResult:
         gather = Gather(
             input="speech",
@@ -66,26 +70,16 @@ def twilio_voice(
             method="POST",
             speech_timeout="auto",
         )
-        gather.say(
-            "Hi, this is your banking assistant. "
-            "You can ask about your balance or request a transfer.",
-            language="en-US",
-        )
+        gather.say("Hi, I am your banking assistant. How can I help you today?")
         resp.append(gather)
+        resp.say("I didn't hear anything. Goodbye.")
+        return Response(str(resp), media_type="application/xml")
 
-        resp.say("I didn't hear anything. Goodbye.", language="en-US")
-        return Response(content=str(resp), media_type="application/xml")
+    # Process conversation
+    reply, intent = process_message(SpeechResult, user_id, db)
+    resp.say(reply)
 
-    # We have text recognized by Twilio STT
-    print("USER SAID:", SpeechResult)
-
-    reply, intent = process_message(SpeechResult, BACKEND_USER_ID, db)
-    print("BACKEND ANSWER:", reply, "| INTENT:", intent)
-
-    # Voice response
-    resp.say(reply, language="en-US")
-
-    # Next turn of the conversation
+    # Wait for next user message
     gather = Gather(
         input="speech",
         language="en-US",
@@ -93,7 +87,7 @@ def twilio_voice(
         method="POST",
         speech_timeout="auto",
     )
-    gather.say("You can ask another question.", language="en-US")
+    gather.say("You can ask another question.")
     resp.append(gather)
 
-    return Response(content=str(resp), media_type="application/xml")
+    return Response(str(resp), media_type="application/xml")
