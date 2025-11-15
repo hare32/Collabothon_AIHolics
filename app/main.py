@@ -7,13 +7,15 @@ from fastapi.responses import HTMLResponse
 
 from .db import Base, engine, get_db
 from .seed import seed_demo_data
-from .api import chat, twilio, banking as banking_api
+from .api import chat
+from .api import twilio
+from .api import banking as banking_api
+from .api import auth_voice
 
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Collab Voice Assistant")
 
-# CORS – Twilio Voice SDK in the browser
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -22,10 +24,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
 @app.on_event("startup")
 def startup() -> None:
-    # Seed demo data
     with next(get_db()) as db:
         seed_demo_data(db)
 
@@ -45,6 +45,7 @@ def serve_index():
     return index_path.read_text(encoding="utf-8")
 
 
-app.include_router(chat.router)
+app.include_router(auth_voice.router)
 app.include_router(twilio.router)
+app.include_router(chat.router)
 app.include_router(banking_api.router)
