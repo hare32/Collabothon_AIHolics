@@ -23,16 +23,18 @@ router = APIRouter(prefix="/twilio", tags=["twilio"])
 
 @router.get("/token")
 def twilio_token():
-    if not (
-        TWILIO_ACCOUNT_SID and TWILIO_API_KEY and TWILIO_API_SECRET and TWIML_APP_SID
-    ):
+    """Returns a Twilio Voice SDK token for browser calls."""
+    if not all([TWILIO_ACCOUNT_SID, TWILIO_API_KEY, TWILIO_API_SECRET, TWIML_APP_SID]):
         return JSONResponse(
             status_code=500,
-            content={"error": "Missing Twilio config."},
+            content={"error": "Missing Twilio configuration."},
         )
 
     token = AccessToken(
-        TWILIO_ACCOUNT_SID, TWILIO_API_KEY, TWILIO_API_SECRET, identity="web_user"
+        TWILIO_ACCOUNT_SID,
+        TWILIO_API_KEY,
+        TWILIO_API_SECRET,
+        identity="web_user",
     )
     token.add_grant(VoiceGrant(outgoing_application_sid=TWIML_APP_SID))
 
@@ -45,14 +47,21 @@ def twilio_token():
 
 @router.post("/voice")
 def twilio_voice(
-    SpeechResult: Optional[str] = Form(default=None),
+    SpeechResult: Optional[str] = Form(None),
     db: Session = Depends(get_db),
 ):
+    """Main post-auth banking conversational endpoint."""
     user_id = BACKEND_USER_ID
-    resp = VoiceResponse()
     user = get_user(db, user_id)
 
-    # FIRST ENTRY → banking greeting
+    resp = VoiceResponse()
+
+    if not user:
+        resp.say("System error: user not found.")
+        resp.hangup()
+        return Response(str(resp), media_type="application/xml")
+
+    # First entry → greet user
     if not SpeechResult:
         gather = Gather(
             input="speech",
@@ -61,20 +70,16 @@ def twilio_voice(
             method="POST",
             speech_timeout="auto",
         )
-        gather.say(
-            "Hi, I am your banking assistant. How can I help you today?",
-            language="en-US",
-        )
+        gather.say("Hi, I am your banking assistant. How can I help you today?")
         resp.append(gather)
-
-        resp.say("I didn't hear anything. Goodbye.", language="en-US")
+        resp.say("I didn't hear anything. Goodbye.")
         return Response(str(resp), media_type="application/xml")
 
-    # PROCESS banking conversation
+    # Process conversation
     reply, intent = process_message(SpeechResult, user_id, db)
+    resp.say(reply)
 
-    resp.say(reply, language="en-US")
-
+    # Wait for next user message
     gather = Gather(
         input="speech",
         language="en-US",
@@ -82,7 +87,7 @@ def twilio_voice(
         method="POST",
         speech_timeout="auto",
     )
-    gather.say("You can ask another question.", language="en-US")
+    gather.say("You can ask another question.")
     resp.append(gather)
 
     return Response(str(resp), media_type="application/xml")

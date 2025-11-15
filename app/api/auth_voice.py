@@ -10,28 +10,32 @@ from ..config import BACKEND_USER_ID
 from ..voice_auth import VoiceAuthenticator
 
 router = APIRouter(prefix="/auth", tags=["auth"])
-
 authenticator = VoiceAuthenticator()
 
 
 @router.post("/voice")
 def auth_voice(
-    SpeechResult: Optional[str] = Form(default=None),
+    SpeechResult: Optional[str] = Form(None),
     db: Session = Depends(get_db),
 ):
     """
-    Twilio entry point for voice-based authentication.
-    Flow:
-      1. Ask for full name
-      2. Ask for last 4 digits of ID
-      3. Ask for PIN
-      4. Redirect to /twilio/voice after success
+    Twilio entry point for voice authentication.
+    Steps:
+      1. Verify name
+      2. Verify last 4 digits of ID
+      3. Verify PIN
+      4. Redirect to /twilio/voice on success
     """
     user_id = BACKEND_USER_ID
     user = get_user(db, user_id)
     resp = VoiceResponse()
 
-    # === First entry (no speech yet) ===
+    if not user:
+        resp.say("System error: user not found.")
+        resp.hangup()
+        return Response(str(resp), media_type="application/xml")
+
+    # Initial: no speech -> start authentication
     if not SpeechResult:
         authenticator.reset(user_id)
         gather = Gather(
@@ -44,8 +48,8 @@ def auth_voice(
         gather.say("Welcome. Please say your full name to begin.")
         resp.append(gather)
         resp.say("No speech detected. Goodbye.")
-        return Response(content=str(resp), media_type="application/xml")
+        return Response(str(resp), media_type="application/xml")
 
-    # === Continue authentication ===
+    # Continue auth flow
     response_obj = authenticator.handle(user_id, SpeechResult, user)
-    return Response(content=str(response_obj), media_type="application/xml")
+    return Response(str(response_obj), media_type="application/xml")
