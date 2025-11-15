@@ -110,7 +110,7 @@ def ask_llm(message: str, context: str) -> str:
         messages=[
             {
                 "role": "system",
-                "content": "You are a helpful English-speaking banking assistant.",
+                "content": "You are a English-speaking banking assistant.",
             },
             {"role": "user", "content": prompt},
         ],
