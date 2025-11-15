@@ -93,6 +93,76 @@ def detect_intent(message: str, history: Optional[List[Tuple[str, str]]] = None)
         return "other"
 
 
+def extract_recipient(
+    message: str, history: Optional[List[Tuple[str, str]]] = None
+) -> Optional[str]:
+    """
+    Wyciąga z wypowiedzi nazwę/określenie odbiorcy przelewu za pomocą LLM.
+
+    Przykłady:
+      - 'Wyślij 150 zł do Jana Kowalskiego' -> 'Jan Kowalski'
+      - 'Przelej 200 zł na fundusz alimentacyjny' -> 'fundusz alimentacyjny'
+      - 'Daj sąsiadowi 50 zł' -> 'sąsiad'
+      - jeśli brak jasnego odbiorcy -> zwraca None
+
+    Zasada: model ma zwrócić TYLKO nazwę / opis odbiorcy
+    (bez kwoty, bez dodatkowych słów), albo słowo 'NONE'.
+    """
+
+    history_text = ""
+    if history:
+        last_turns = history[-6:]
+        lines = []
+        for role, msg in last_turns:
+            who = "Klient" if role == "user" else "Asystent"
+            lines.append(f"{who}: {msg}")
+        history_text = "\n".join(lines)
+
+    system_prompt = (
+        "Jesteś ekstraktorem danych w asystencie bankowym.\n"
+        "Na podstawie wypowiedzi klienta wyodrębniasz nazwę odbiorcy przelewu.\n"
+        "Zwróć TYLKO nazwę odbiorcy (np. 'Jan Kowalski', 'mój sąsiad', 'fundusz alimentacyjny').\n"
+        "Usuń z odpowiedzi kwoty, waluty i zbędne słowa.\n"
+        "Jeśli w wypowiedzi NIE ma informacji o odbiorcy, zwróć dokładnie słowo: NONE.\n"
+        "Nie dodawaj żadnych komentarzy, wyjaśnień ani innych słów."
+    )
+
+    if history_text:
+        user_prompt = (
+            f"Oto fragment dotychczasowej rozmowy:\n{history_text}\n\n"
+            f"Ostatnie zdanie klienta: {message}\n"
+            "Na tej podstawie zwróć tylko nazwę odbiorcy lub NONE."
+        )
+    else:
+        user_prompt = message
+
+    try:
+        completion = client.chat.completions.create(
+            model=DEFAULT_MODEL,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0.0,
+            max_tokens=20,
+        )
+
+        content = completion.choices[0].message.content or ""
+        recipient_raw = content.strip()
+
+        if not recipient_raw:
+            return None
+
+        if recipient_raw.upper() == "NONE":
+            return None
+
+        return recipient_raw
+
+    except Exception as e:
+        print("[WARN] extract_recipient LLM error:", e)
+        return None
+
+
 def ask_llm(message: str, context: str) -> str:
     prompt = (
         "Jesteś wirtualnym asystentem bankowym. "

@@ -5,7 +5,7 @@ from collections import defaultdict
 from sqlalchemy.orm import Session
 
 from . import banking
-from .llm import detect_intent, ask_llm
+from .llm import detect_intent, ask_llm, extract_recipient
 
 # ======= PROSTA HISTORIA ROZMOWY PER USER =======
 # Lista par: ("user" | "assistant", tekst)
@@ -79,15 +79,26 @@ def process_message(
             )
             return _store_history(user_id, message, reply), intent
 
+        # Wyciągamy odbiorcę przelewu za pomocą LLM (na podstawie tej samej historii)
+        recipient = extract_recipient(message, history)
+        if not recipient:
+            recipient = "Nieznany odbiorca (asystent głosowy)"
+
         try:
-            updated = banking.perform_transfer(db, user_id, amount)
+            updated = banking.perform_transfer(
+                db,
+                user_id=user_id,
+                amount=amount,
+                recipient_details=recipient,
+            )
         except ValueError as e:
             # np. niewystarczające środki
             reply = str(e)
             return _store_history(user_id, message, reply), intent
 
         reply = (
-            f"Przelew na kwotę {amount:.2f} {updated.currency} został wykonany. "
+            f"Przelew na kwotę {amount:.2f} {updated.currency} został wykonany "
+            f"do odbiorcy: {recipient}. "
             f"Twoje aktualne saldo to {updated.balance:.2f} {updated.currency} "
             f"na koncie {updated.iban}."
         )
