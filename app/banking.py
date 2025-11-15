@@ -10,7 +10,13 @@ def seed_data(db: Session) -> None:
     if db.execute(select(User)).first():
         return
 
-    user = User(id="user-1", name="John Smith", phone="+48123123123")
+    user = User(
+        id="user-1",
+        name="John Smith",
+        pesel="12345678901",
+        pin_code="4321",
+        phone="+48123123123",
+    )
     db.add(user)
 
     acc = Account(
