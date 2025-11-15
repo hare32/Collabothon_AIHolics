@@ -20,7 +20,6 @@ def _store_history(user_id: str, user_msg: str, reply: str) -> str:
     history = conversation_history[user_id]
     history.append(("user", user_msg))
     history.append(("assistant", reply))
-    # przycinamy, żeby nie rosło w nieskończoność
     if len(history) > 20:  # 10 wymian user–assistant
         del history[:-20]
     return reply
@@ -46,8 +45,6 @@ def extract_amount(message: str) -> float:
 def _format_amount_pln(amount: float) -> str:
     """
     Prosty formatter kwoty w złotówkach do użycia w mowie.
-    Np. 8 -> '8 złotych', 200 -> '200 złotych', 12.50 -> '12.50 złotego'.
-    Na potrzeby demo nie robimy idealnej fleksji językowej.
     """
     if amount.is_integer():
         return f"{int(amount)} złotych"
@@ -91,17 +88,38 @@ def process_message(
             )
             return _store_history(user_id, message, reply), intent
 
-        # Wyciągamy odbiorcę przelewu za pomocą LLM (na podstawie tej samej historii)
-        recipient = extract_recipient(message, history)
-        if not recipient:
-            recipient = "Nieznany odbiorca (asystent głosowy)"
+        # Wyciągamy nazwę odbiorcy z mowy za pomocą LLM (np. 'mama', 'wnuczek')
+        recipient_label = extract_recipient(message, history)
+        if not recipient_label:
+            reply = (
+                "Nie zrozumiałem, do kogo ma być przelew. "
+                "Powiedz na przykład 'wyślij 50 zł do mamy'."
+            )
+            return _store_history(user_id, message, reply), intent
+
+        # Mapujemy to na zapisany kontakt (mama -> Barbara Kowalska, itd.)
+        contact = banking.resolve_contact(db, user_id, recipient_label)
+
+        if not contact:
+            reply = (
+                f"Nie znam odbiorcy '{recipient_label}'. "
+                "Dodaj go proszę w aplikacji bankowej jako zapisany kontakt."
+            )
+            return _store_history(user_id, message, reply), intent
+
+        recipient_name = contact.full_name
+        recipient_iban = contact.iban
+        title = contact.default_title or f"Przelew do {contact.full_name}"
+        pretty_label = f"{contact.full_name} ({contact.nickname})"
 
         try:
             updated = banking.perform_transfer(
                 db,
                 user_id=user_id,
                 amount=amount,
-                recipient_details=recipient,
+                recipient_name=recipient_name,
+                recipient_iban=recipient_iban,
+                title=title,
             )
         except ValueError as e:
             # np. niewystarczające środki
@@ -110,7 +128,7 @@ def process_message(
 
         reply = (
             f"Przelew na kwotę {amount:.2f} {updated.currency} został wykonany "
-            f"do odbiorcy: {recipient}. "
+            f"do odbiorcy: {pretty_label}. "
             f"Twoje aktualne saldo to {updated.balance:.2f} {updated.currency} "
             f"na koncie {updated.iban}."
         )
@@ -136,14 +154,14 @@ def process_message(
             reply = "Nie znalazłem żadnych przelewów w historii."
             return _store_history(user_id, message, reply), intent
 
-        # Budujemy tekst podobny do tego, który podałeś w przykładzie
         lines: List[str] = []
         for t in transactions:
             kwota_txt = _format_amount_pln(t.amount)
-            # Np. "Przelew na kwotę 8 złotych do moja starej"
-            lines.append(f"Przelew na kwotę {kwota_txt} do {t.recipient_details}")
+            lines.append(
+                f"Przelew na kwotę {kwota_txt} do {t.recipient_name}, "
+                f"tytuł: {t.title}"
+            )
 
-        # Każdy przelew w nowej linii, żeby ładnie się czytało przez TTS
         reply = "Oto Twoje ostatnie przelewy:\n" + "\n".join(lines)
         return _store_history(user_id, message, reply), intent
 

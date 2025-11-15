@@ -32,7 +32,9 @@ class AccountOut(BaseModel):
 class TransferRequest(BaseModel):
     user_id: str  # Nadawca
     amount: float
-    recipient_details: str
+    recipient_name: str
+    recipient_iban: str
+    title: str
 
 
 class TransactionOut(BaseModel):
@@ -40,6 +42,8 @@ class TransactionOut(BaseModel):
 
     id: int
     sender_id: str
-    recipient_details: str
+    recipient_name: str
+    recipient_iban: str
+    title: str
     amount: float
     timestamp: datetime
