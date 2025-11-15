@@ -4,29 +4,29 @@ from collections import defaultdict
 import re
 
 
-# ======= PROSTA HISTORIA ROZMOWY PER USER =======
-# Lista par: ("user" | "assistant", tekst)
+# ======= SIMPLE PER-USER CONVERSATION HISTORY =======
+# List of pairs: ("user" | "assistant", text)
 ConversationHistory = Dict[str, List[Tuple[str, str]]]
 conversation_history: ConversationHistory = defaultdict(list)
 
 
 def store_history(user_id: str, user_msg: str, reply: str) -> str:
     """
-    Zapisuje ostatnią wypowiedź użytkownika i odpowiedź asystenta
-    w historii dla danego usera. Trzymamy tylko ostatnie ~10 wymian.
+    Stores the last user message and assistant reply
+    in the history for a given user. We keep only ~10 turns.
     """
     history = conversation_history[user_id]
     history.append(("user", user_msg))
     history.append(("assistant", reply))
-    if len(history) > 20:  # 10 wymian user–assistant
+    if len(history) > 20:  # 10 user–assistant exchanges
         del history[:-20]
     return reply
 
 
 def extract_amount(message: str) -> float:
     """
-    Bardzo prosty parser kwoty z tekstu.
-    Szuka pierwszej liczby w tekście:
+    Very simple amount parser from text.
+    Looks for the first number in the text:
     - 100
     - 100,50
     - 100.50
@@ -42,18 +42,18 @@ def extract_amount(message: str) -> float:
 
 def format_amount_pln(amount: float) -> str:
     """
-    Prosty formatter kwoty w złotówkach do użycia w mowie.
+    Simple formatter for amount in PLN for spoken output.
     """
     if amount.is_integer():
-        return f"{int(amount)} złotych"
-    return f"{amount:.2f} złotego"
+        return f"{int(amount)} PLN"
+    return f"{amount:.2f} PLN"
 
 
 def extract_history_limit(message: str, default: int = 3, max_limit: int = 10) -> int:
     """
-    Wyciąga z wypowiedzi ile ostatnich przelewów pokazać.
-    Np. 'podaj 3 ostatnie przelewy', 'pokaż 5 przelewów z historii'.
-    Jeśli brak liczby -> default.
+    Extracts from the utterance how many last transfers to show.
+    Examples: 'show last 3 transfers', 'give me 5 last transactions'.
+    If no number found -> default.
     """
     m = re.search(r"(\d+)", message)
     if not m:

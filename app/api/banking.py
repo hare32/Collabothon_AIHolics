@@ -12,8 +12,8 @@ router = APIRouter(prefix="/banking", tags=["banking"])
 @router.post("/transfer", response_model=AccountOut)
 def create_transfer(request: TransferRequest, db: Session = Depends(get_db)):
     """
-    Wykonuje nowy przelew.
-    Tworzy zapis transakcji i aktualizuje saldo.
+    Performs a new transfer.
+    Creates a transaction record and updates the account balance.
     """
     try:
         account = banking.perform_transfer(
@@ -26,14 +26,14 @@ def create_transfer(request: TransferRequest, db: Session = Depends(get_db)):
         )
         return account
     except ValueError as e:
-        # Błędy walidacji z banking.py (np. brak środków)
+        # Validation errors from banking.py (e.g. insufficient funds)
         raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.get("/transactions/{user_id}", response_model=List[TransactionOut])
 def get_transaction_history(user_id: str, db: Session = Depends(get_db)):
     """
-    Zwraca historię transakcji dla danego użytkownika (gdzie był nadawcą).
+    Returns the transaction history for a given user (where the user is the sender).
     """
     transactions = banking.get_transactions_for_user(db, user_id)
     return transactions

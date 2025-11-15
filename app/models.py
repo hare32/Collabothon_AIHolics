@@ -27,7 +27,7 @@ class Account(Base):
 
 class Contact(Base):
     """
-    Zapisany odbiorca przelewów (np. 'mama', 'wnuczek').
+    Saved transfer recipient (e.g. 'mom', 'grandson').
     """
 
     __tablename__ = "contacts"
@@ -35,16 +35,16 @@ class Contact(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
 
-    # np. 'mama', 'wnuczek', 'sąsiad'
+    # e.g. 'mom', 'grandson', 'neighbor'
     nickname: Mapped[str] = mapped_column(String, nullable=False)
 
-    # pełne imię i nazwisko / nazwa
+    # full name / organization name
     full_name: Mapped[str] = mapped_column(String, nullable=False)
 
-    # numer konta odbiorcy
+    # recipient account number
     iban: Mapped[str] = mapped_column(String, nullable=False)
 
-    # domyślny tytuł przelewu, jeśli brak innego
+    # default transfer title, if none is provided
     default_title: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
 
@@ -54,7 +54,7 @@ class Transaction(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     sender_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
 
-    # dane odbiorcy zapisane w momencie przelewu
+    # recipient data frozen at transfer time
     recipient_name: Mapped[str] = mapped_column(String, nullable=False)
     recipient_iban: Mapped[str] = mapped_column(String, nullable=False)
     title: Mapped[str] = mapped_column(String, nullable=False)

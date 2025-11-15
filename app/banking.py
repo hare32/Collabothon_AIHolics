@@ -20,9 +20,9 @@ def get_account_for_user(db: Session, user_id: str) -> Optional[Account]:
 
 def resolve_contact(db: Session, user_id: str, label: str) -> Optional[Contact]:
     """
-    Używa LLM (match_contact_label), żeby dopasować frazę z mowy do jednego z kontaktów.
-    Przykład:
-      label: 'do mojej mamy'  -> LLM wybiera nickname 'mama'  -> kontakt 'Barbara Kowalska'
+    Uses LLM (match_contact_label) to map a phrase from speech to one of the contacts.
+    Example:
+      label: 'to my mom'  -> LLM picks nickname 'mom'  -> contact 'Barbara Smith'
     """
     label = (label or "").strip()
     if not label:
@@ -43,12 +43,12 @@ def resolve_contact(db: Session, user_id: str, label: str) -> Optional[Contact]:
 
     chosen_lower = chosen.strip().lower()
 
-    # najpierw spróbuj po nickname (case-insensitive)
+    # Try by nickname first (case-insensitive)
     for c in contacts:
         if c.nickname.lower() == chosen_lower:
             return c
 
-    # jeśli model zwrócił pełną nazwę zamiast nickname, spróbuj po full_name
+    # If the model returned full name instead of nickname, try by full_name
     for c in contacts:
         if c.full_name.lower() == chosen_lower:
             return c
@@ -65,25 +65,25 @@ def perform_transfer(
     title: str,
 ) -> Account:
     """
-    Wykonuje przelew (odejmuje saldo) i tworzy zapis transakcji
-    z pełnymi danymi odbiorcy.
+    Performs a transfer (subtracts balance) and creates a transaction record
+    with full recipient data.
     """
     account = get_account_for_user(db, user_id)
     if account is None:
-        raise ValueError("Brak konta dla użytkownika.")
+        raise ValueError("No account found for this user.")
 
     if amount <= 0:
-        raise ValueError("Kwota przelewu musi być dodatnia.")
+        raise ValueError("Transfer amount must be positive.")
 
     if account.balance < amount:
-        raise ValueError("Niewystarczające środki na koncie.")
+        raise ValueError("Insufficient funds on the account.")
 
     if not recipient_name:
-        raise ValueError("Brak nazwy odbiorcy.")
+        raise ValueError("Recipient name is missing.")
 
     if not recipient_iban:
-        # w prawdziwym banku byłby twardy błąd
-        raise ValueError("Brak numeru konta odbiorcy.")
+        # in a real bank this would be a hard error
+        raise ValueError("Recipient IBAN is missing.")
 
     account.balance -= amount
 
@@ -108,8 +108,8 @@ def get_transactions_for_user(
     limit: Optional[int] = None,
 ) -> Sequence[Transaction]:
     """
-    Pobiera historię transakcji, gdzie użytkownik był NADAWCĄ.
-    Jeśli podano limit, zwraca maksymalnie 'limit' najnowszych transakcji.
+    Returns transaction history where the user is the SENDER.
+    If limit is provided, returns at most 'limit' most recent transactions.
     """
     stmt = (
         select(Transaction)

@@ -4,7 +4,7 @@ from groq import Groq
 from .config import GROQ_API_KEY
 
 if not GROQ_API_KEY:
-    raise RuntimeError("Brak GROQ_API_KEY w .env – ustaw go przed uruchomieniem.")
+    raise RuntimeError("Missing GROQ_API_KEY in .env – set it before running.")
 
 client = Groq(api_key=GROQ_API_KEY)
 
@@ -13,56 +13,56 @@ DEFAULT_MODEL = "llama-3.1-8b-instant"
 
 def detect_intent(message: str, history: Optional[List[Tuple[str, str]]] = None) -> str:
     """
-    Wykrywa intencję użytkownika za pomocą LLM, uwzględniając historię rozmowy.
-    Zwraca jeden z czterech stringów:
-    - "make_transfer"   -> użytkownik chce zrobić przelew
-    - "check_balance"   -> użytkownik chce sprawdzić saldo / stan konta
-    - "show_history"    -> użytkownik chce poznać historię przelewów / ostatnie transakcje
-    - "other"           -> wszystko inne
+    Detects the user's intent using LLM, taking conversation history into account.
+    Returns one of four strings:
+    - "make_transfer"   -> user wants to make a transfer / send money
+    - "check_balance"   -> user wants to check account balance
+    - "show_history"    -> user wants to see transfer history / recent transactions
+    - "other"           -> anything else
     """
 
-    # z historii bierzemy kilka ostatnich wypowiedzi, żeby model wiedział, o czym była mowa
+    # Use a few last turns so the model knows the context
     history_text = ""
     if history:
-        last_turns = history[-6:]  # max ~3 wymiany
+        last_turns = history[-6:]  # up to ~3 exchanges
         lines = []
         for role, msg in last_turns:
-            who = "Klient" if role == "user" else "Asystent"
+            who = "Customer" if role == "user" else "Assistant"
             lines.append(f"{who}: {msg}")
         history_text = "\n".join(lines)
 
     system_prompt = (
-        "Jesteś klasyfikatorem intencji w asystencie bankowym.\n"
-        "Klient mówi po polsku. Na podstawie rozmowy zwróć TYLKO jedno słowo:\n"
-        "- make_transfer  jeśli chce wykonać przelew lub zapłacić komuś pieniądze\n"
-        "- check_balance  jeśli pyta o saldo, stan konta, ile ma pieniędzy\n"
-        "- show_history   jeśli pyta o historię przelewów, ostatnie transakcje\n"
-        "- other          jeśli wypowiedź nie dotyczy powyższych\n\n"
-        "Bierz pod uwagę historię, np. gdy wcześniej klient mówił o przelewie,\n"
-        "a teraz podaje tylko kwotę ('50 zł'), to intencja nadal jest make_transfer.\n\n"
-        "Przykłady:\n"
-        "U: Daj sąsiadowi 50 zł\n"
+        "You are an intent classifier in a banking voice assistant.\n"
+        "The customer speaks English. Based on the conversation, return ONLY one word:\n"
+        "- make_transfer  if the customer wants to make a transfer or send money\n"
+        "- check_balance  if the customer asks about balance, account status, how much money they have\n"
+        "- show_history   if the customer asks about transfer history, recent transactions\n"
+        "- other          if the utterance does not match the above\n\n"
+        "Take conversation history into account, e.g. if the customer previously talked about a transfer,\n"
+        "and now only says an amount ('50'), the intent is still make_transfer.\n\n"
+        "Examples:\n"
+        "U: Send 50 to my neighbor\n"
         "A: make_transfer\n"
-        "U: Zrób przelew dla sąsiada 50 zł\n"
+        "U: Make a transfer of 50 to my neighbor\n"
         "A: make_transfer\n"
-        "U: Ile mam pieniędzy?\n"
+        "U: How much money do I have?\n"
         "A: check_balance\n"
-        "U: Jakie jest moje saldo?\n"
+        "U: What's my balance?\n"
         "A: check_balance\n"
-        "U: Jakie były moje ostatnie przelewy?\n"
+        "U: What were my last transfers?\n"
         "A: show_history\n"
-        "U: Pokaż historię transakcji\n"
+        "U: Show my transaction history\n"
         "A: show_history\n"
-        "U: Opowiedz dowcip\n"
+        "U: Tell me a joke\n"
         "A: other\n"
-        "Nie dodawaj żadnych wyjaśnień, komentarzy ani dodatkowego tekstu."
+        "Do not add any explanations, comments or extra text."
     )
 
     if history_text:
         user_prompt = (
-            f"Oto fragment dotychczasowej rozmowy:\n{history_text}\n\n"
-            f"Ostatnie zdanie klienta: {message}\n"
-            "Na tej podstawie zwróć tylko etykietę intencji."
+            f"Here is part of the conversation so far:\n{history_text}\n\n"
+            f"Customer's last sentence: {message}\n"
+            "Based on this, return only the intent label."
         )
     else:
         user_prompt = message
@@ -81,23 +81,23 @@ def detect_intent(message: str, history: Optional[List[Tuple[str, str]]] = None)
         content = completion.choices[0].message.content or ""
         intent_raw = content.strip().lower()
 
-        # prosta normalizacja, gdyby model odpisał np. z dużej litery
+        # Simple normalization, in case model changes capitalization or words
         mapping = {
             "make_transfer": "make_transfer",
             "check_balance": "check_balance",
             "show_history": "show_history",
             "other": "other",
-            # na wszelki wypadek, gdyby zwrócił po polsku
-            "przelew": "make_transfer",
-            "saldo": "check_balance",
-            "historia": "show_history",
-            "historia_przelewów": "show_history",
+            # in case it returns English synonyms
+            "transfer": "make_transfer",
+            "balance": "check_balance",
+            "history": "show_history",
+            "transactions": "show_history",
         }
 
         return mapping.get(intent_raw, "other")
 
     except Exception as e:
-        # w razie problemów z LLM – nie blokujemy całej aplikacji
+        # On LLM problems – do not block the whole app
         print("[WARN] detect_intent LLM error:", e)
         return "other"
 
@@ -106,16 +106,16 @@ def extract_recipient(
     message: str, history: Optional[List[Tuple[str, str]]] = None
 ) -> Optional[str]:
     """
-    Wyciąga z wypowiedzi nazwę/określenie odbiorcy przelewu za pomocą LLM.
+    Extracts the recipient name/description from the utterance using LLM.
 
-    Przykłady:
-      - 'Wyślij 150 zł do Jana Kowalskiego' -> 'Jan Kowalski'
-      - 'Przelej 200 zł na fundusz alimentacyjny' -> 'fundusz alimentacyjny'
-      - 'Daj sąsiadowi 50 zł' -> 'sąsiad'
-      - jeśli brak jasnego odbiorcy -> zwraca None
+    Examples:
+      - 'Send 150 PLN to John Smith' -> 'John Smith'
+      - 'Transfer 200 PLN to child support fund' -> 'child support fund'
+      - 'Give 50 PLN to my neighbor' -> 'my neighbor'
+      - if no clear recipient -> returns None
 
-    Zasada: model ma zwrócić TYLKO nazwę / opis odbiorcy
-    (bez kwoty, bez dodatkowych słów), albo słowo 'NONE'.
+    Rule: the model must return ONLY the recipient name/description
+    (no amount, no currency, no extra words), or the word 'NONE'.
     """
 
     history_text = ""
@@ -123,24 +123,24 @@ def extract_recipient(
         last_turns = history[-6:]
         lines = []
         for role, msg in last_turns:
-            who = "Klient" if role == "user" else "Asystent"
+            who = "Customer" if role == "user" else "Assistant"
             lines.append(f"{who}: {msg}")
         history_text = "\n".join(lines)
 
     system_prompt = (
-        "Jesteś ekstraktorem danych w asystencie bankowym.\n"
-        "Na podstawie wypowiedzi klienta wyodrębniasz nazwę odbiorcy przelewu.\n"
-        "Zwróć TYLKO nazwę odbiorcy (np. 'Jan Kowalski', 'mój sąsiad', 'fundusz alimentacyjny').\n"
-        "Usuń z odpowiedzi kwoty, waluty i zbędne słowa.\n"
-        "Jeśli w wypowiedzi NIE ma informacji o odbiorcy, zwróć dokładnie słowo: NONE.\n"
-        "Nie dodawaj żadnych komentarzy, wyjaśnień ani innych słów."
+        "You are a data extractor in a banking assistant.\n"
+        "Based on the customer's utterance, extract the transfer recipient name.\n"
+        "Return ONLY the recipient name/description (e.g. 'John Smith', 'my neighbor', 'child support fund').\n"
+        "Remove amounts, currencies and unnecessary words.\n"
+        "If the utterance does NOT contain recipient information, return exactly: NONE.\n"
+        "Do not add any comments, explanations or other words."
     )
 
     if history_text:
         user_prompt = (
-            f"Oto fragment dotychczasowej rozmowy:\n{history_text}\n\n"
-            f"Ostatnie zdanie klienta: {message}\n"
-            "Na tej podstawie zwróć tylko nazwę odbiorcy lub NONE."
+            f"Here is part of the conversation so far:\n{history_text}\n\n"
+            f"Customer's last sentence: {message}\n"
+            "Based on this, return only the recipient name or NONE."
         )
     else:
         user_prompt = message
@@ -174,10 +174,10 @@ def extract_recipient(
 
 def ask_llm(message: str, context: str) -> str:
     prompt = (
-        "Jesteś wirtualnym asystentem bankowym. "
-        "Odpowiadasz krótko, jasno, po polsku.\n\n"
-        f"Kontekst klienta:\n{context}\n\n"
-        f"Pytanie klienta: {message}\n"
+        "You are a virtual banking assistant. "
+        "You respond briefly and clearly in English.\n\n"
+        f"Customer context:\n{context}\n\n"
+        f"Customer question: {message}\n"
     )
 
     completion = client.chat.completions.create(
@@ -185,7 +185,7 @@ def ask_llm(message: str, context: str) -> str:
         messages=[
             {
                 "role": "system",
-                "content": "Jesteś asystentem bankowym mówiącym po polsku.",
+                "content": "You are a helpful banking assistant speaking English.",
             },
             {"role": "user", "content": prompt},
         ],
@@ -198,24 +198,24 @@ def ask_llm(message: str, context: str) -> str:
 
 def match_contact_label(label: str, contacts: List[Dict[str, str]]) -> Optional[str]:
     """
-    Używa LLM, aby dopasować frazę z mowy (np. 'do mojej mamy', 'dla wnuczki')
-    do jednego z kontaktów.
+    Uses LLM to map a phrase from speech (e.g. 'to my mom', 'for my grandson')
+    to one of the contacts.
 
-    contacts: lista słowników:
+    contacts: list of dictionaries:
       {
-        "nickname": "mama",
-        "full_name": "Barbara Kowalska"
+        "nickname": "mom",
+        "full_name": "Barbara Smith"
       }
 
-    Zwraca:
-      - nickname kontaktu (np. 'mama') jeśli LLM znajdzie sensowne dopasowanie
-      - None jeśli brak jednoznacznego dopasowania (LLM ma zwrócić 'NONE')
+    Returns:
+      - the nickname of the contact (e.g. 'mom') if LLM finds a sensible match
+      - None if no clear match (LLM should return 'NONE')
     """
     label = (label or "").strip()
     if not label or not contacts:
         return None
 
-    # Budujemy listę kontaktów do pokazania LLM
+    # Build contact list text for LLM
     lines = []
     for c in contacts:
         nick = c.get("nickname", "")
@@ -224,23 +224,23 @@ def match_contact_label(label: str, contacts: List[Dict[str, str]]) -> Optional[
     contacts_text = "\n".join(lines)
 
     system_prompt = (
-        "Jesteś modułem dopasowującym odbiorcę przelewu do zapisanych kontaktów.\n"
-        "Klient mówi po polsku i używa określeń typu 'do mojej mamy', 'dla wnuczki', "
-        "'do funduszu alimentacyjnego', itp.\n\n"
-        "Dostajesz:\n"
-        "- FRAZĘ od klienta opisującą odbiorcę przelewu\n"
-        "- LISTĘ kontaktów, gdzie każdy ma 'nickname' i pełną nazwę.\n\n"
-        "Twoje zadanie:\n"
-        "- wybierz ten kontakt, który NAJBARDZIEJ pasuje znaczeniowo do frazy klienta\n"
-        "- zwróć DOKŁADNIE wartość 'nickname' wybranego kontaktu\n"
-        "- jeśli żaden kontakt nie pasuje sensownie, zwróć dokładnie: NONE\n\n"
-        "Nie dodawaj żadnych wyjaśnień, komentarzy ani dodatkowego tekstu."
+        "You are a module that matches the transfer recipient to saved contacts.\n"
+        "The customer speaks English and uses phrases such as 'to my mom', 'for my grandson', "
+        "'to the child support fund', etc.\n\n"
+        "You get:\n"
+        "- a PHRASE from the customer describing the recipient\n"
+        "- a LIST of contacts, each having 'nickname' and full name\n\n"
+        "Your task:\n"
+        "- choose the contact that best matches the customer's phrase\n"
+        "- return EXACTLY the 'nickname' value of the chosen contact\n"
+        "- if no contact fits reasonably, return exactly: NONE\n\n"
+        "Do not add any explanations, comments or extra text."
     )
 
     user_prompt = (
-        f"FRAZA KLIENTA: {label}\n\n"
-        f"LISTA KONTAKTÓW:\n{contacts_text}\n\n"
-        "Zwróć tylko nickname najlepiej pasującego kontaktu albo NONE."
+        f"CUSTOMER PHRASE: {label}\n\n"
+        f"CONTACT LIST:\n{contacts_text}\n\n"
+        "Return only the nickname of the best matching contact or NONE."
     )
 
     try:
