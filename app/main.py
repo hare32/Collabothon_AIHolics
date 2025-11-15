@@ -6,9 +6,8 @@ from fastapi.responses import HTMLResponse
 
 from .db import Base, engine, get_db
 from . import banking
-from .api import chat, twilio
+from .api import chat, twilio, banking as banking_api
 
-# inicjalizacja bazy
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Collab Voice Assistant")
@@ -16,7 +15,7 @@ app = FastAPI(title="Collab Voice Assistant")
 # CORS – Twilio Voice SDK w przeglądarce
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # na demo może zostać *, do produkcji zawęź
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -45,6 +44,6 @@ def serve_index():
     return index_path.read_text(encoding="utf-8")
 
 
-# rejestracja routerów HTTP i Twilio
 app.include_router(chat.router)
 app.include_router(twilio.router)
+app.include_router(banking_api.router)
