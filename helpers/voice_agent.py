@@ -13,7 +13,7 @@ def init_tts() -> Optional[pyttsx3.Engine]:
     try:
         engine = pyttsx3.init()
     except Exception as e:
-        print(f"[WARN] Nie udało się zainicjować TTS: {e}")
+        print(f"[WARN] Failed to initialize TTS: {e}")
         return None
 
     rate_obj = engine.getProperty("rate")
@@ -28,7 +28,7 @@ async def send_to_backend(text: str) -> str:
         resp = await client.post(API, json={"user_id": USER, "message": text})
         resp.raise_for_status()
         data = resp.json()
-        print(f"Asystent ({data['intent']}): {data['reply']}\n")
+        print(f"Assistant ({data['intent']}): {data['reply']}\n")
         return data["reply"]
 
 
@@ -36,51 +36,51 @@ async def main() -> None:
     recognizer = sr.Recognizer()
     tts_engine = init_tts()
 
-    print("Asystent bankowy (VOICE). Powiedz 'koniec' żeby zakończyć.\n")
+    print("Bank Assistant (VOICE). Say 'stop' or 'exit' to quit.\n")
 
     while True:
-        # --- NAGRYWANIE GŁOSU ---
+        # --- RECORDING VOICE ---
         try:
             with sr.Microphone() as source:
-                print("Nasłuchuję... (mów po polsku)")
+                print("Listening... (speak in English)")
                 recognizer.adjust_for_ambient_noise(source, duration=1)
                 audio = recognizer.listen(source)
         except OSError as e:
             print(
-                "[ERROR] Brak domyślnego urządzenia wejściowego audio w tym środowisku.\n"
-                f"Szczegóły: {e}\n"
-                "To typowe w WSL – nie ma dostępu do mikrofonu.\n"
-                "Uruchom tego klienta na systemie z mikrofonem (np. natywny Linux/Windows) "
-                "albo użyj wersji plikowej/webowej."
+                "[ERROR] No default audio input device detected.\n"
+                f"Details: {e}\n"
+                "This is typical in WSL — microphone access is not supported.\n"
+                "Run this client on a system with a microphone "
+                "(e.g. native Windows/macOS/Linux) or use the web/file version."
             )
             return
 
         try:
-            # --- STT: MOWA -> TEKST ---
+            # --- STT: SPEECH → TEXT ---
             rec: Any = recognizer
-            text = rec.recognize_google(audio, language="pl-PL")
+            text = rec.recognize_google(audio, language="en-US")
             text = text.strip()
-            print(f"Ty (rozpoznane): {text}")
+            print(f"You (recognized): {text}")
         except sr.UnknownValueError:
-            print("Nie zrozumiałem, powtórz proszę.\n")
+            print("I didn't understand, please repeat.\n")
             continue
         except sr.RequestError as e:
-            print(f"Błąd usługi rozpoznawania mowy: {e}")
+            print(f"Speech recognition service error: {e}")
             break
 
-        if text.lower() in ["koniec", "exit", "zakończ", "stop"]:
-            print("Kończę rozmowę.")
+        if text.lower() in ["stop", "exit", "quit", "end"]:
+            print("Ending the conversation.")
             break
 
-        # --- WYŚLIJ DO BACKENDU ---
+        # --- SEND TO BACKEND ---
         reply = await send_to_backend(text)
 
-        # --- TTS: TEKST -> MOWA (jeśli działa) ---
+        # --- TTS: TEXT → SPEECH (if available) ---
         if tts_engine is not None:
             tts_engine.say(reply)
             tts_engine.runAndWait()
         else:
-            print("[INFO] TTS wyłączony (brak silnika).")
+            print("[INFO] TTS disabled (engine not available).")
 
 
 if __name__ == "__main__":

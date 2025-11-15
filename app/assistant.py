@@ -7,29 +7,31 @@ from sqlalchemy.orm import Session
 from . import banking
 from .llm import detect_intent, ask_llm
 
-# ======= PROSTA HISTORIA ROZMOWY PER USER =======
-# Lista par: ("user" | "assistant", tekst)
+# ======= SIMPLE PER-USER CONVERSATION HISTORY =======
+# List of pairs: ("user" | "assistant", text)
 conversation_history: Dict[str, List[Tuple[str, str]]] = defaultdict(list)
 
 
 def _store_history(user_id: str, user_msg: str, reply: str) -> str:
     """
-    Zapisuje ostatnią wypowiedź użytkownika i odpowiedź asystenta
-    w historii dla danego usera. Trzymamy tylko ostatnie ~10 wymian.
+    Stores the user's last message and the assistant's reply
+    in that user's history. We keep only the last ~10 exchanges.
     """
     history = conversation_history[user_id]
     history.append(("user", user_msg))
     history.append(("assistant", reply))
-    # przycinamy, żeby nie rosło w nieskończoność
-    if len(history) > 20:  # 10 wymian user–assistant
+
+    # Trim the history so it doesn't grow indefinitely
+    if len(history) > 20:  # 10 user–assistant exchanges
         del history[:-20]
+
     return reply
 
 
 def extract_amount(message: str) -> float:
     """
-    Bardzo prosty parser kwoty z tekstu.
-    Szuka pierwszej liczby w tekście:
+    Very simple amount parser.
+    Finds the first number in text, e.g.:
     - 100
     - 100,50
     - 100.50
@@ -47,71 +49,71 @@ def process_message(
     message: str, user_id: str, db: Session
 ) -> Tuple[str, Optional[str]]:
     """
-    Wspólna logika asystenta:
-    - intencje
-    - przelew
-    - saldo
-    - fallback do LLM
+    Main assistant logic:
+    - intent detection
+    - transfers
+    - balance inquiries
+    - fallback to LLM
 
-    Zwraca (reply, intent).
+    Returns (reply, intent).
     """
 
-    # historia rozmowy dla tego usera
+    # Conversation history for this user
     history = conversation_history[user_id]
 
-    # ---------- DETEKCJA INTENCJI (z historią) ----------
+    # ---------- INTENT DETECTION (with history) ----------
     intent = detect_intent(message, history)
 
     user = banking.get_user(db, user_id)
     account = banking.get_account_for_user(db, user_id)
 
-    # ---------- INTENCJA: PRZELEW ----------
+    # ---------- INTENT: MAKE TRANSFER ----------
     if intent == "make_transfer":
         if account is None:
-            reply = "Nie znaleziono konta dla tego użytkownika."
+            reply = "No account found for this user."
             return _store_history(user_id, message, reply), intent
 
         amount = extract_amount(message)
         if amount <= 0:
             reply = (
-                "Rozumiem, że chcesz zrobić przelew, ale nie rozpoznałem kwoty. "
-                "Podaj proszę kwotę, np. '50 zł'."
+                "I understand you want to make a transfer, but I couldn't detect the amount. "
+                "Please provide it, for example: '50 dollars'."
             )
             return _store_history(user_id, message, reply), intent
 
         try:
             updated = banking.perform_transfer(db, user_id, amount)
         except ValueError as e:
-            # np. niewystarczające środki
+            # e.g. insufficient funds
             reply = str(e)
             return _store_history(user_id, message, reply), intent
 
         reply = (
-            f"Przelew na kwotę {amount:.2f} {updated.currency} został wykonany. "
-            f"Twoje aktualne saldo to {updated.balance:.2f} {updated.currency} "
-            f"na koncie {updated.iban}."
+            f"A transfer of {amount:.2f} {updated.currency} has been completed. "
+            f"Your current balance is {updated.balance:.2f} {updated.currency} "
+            f"on account {updated.iban}."
         )
         return _store_history(user_id, message, reply), intent
 
-    # ---------- INTENCJA: SPRAWDZENIE SALDA ----------
+    # ---------- INTENT: CHECK BALANCE ----------
     if intent == "check_balance":
         if account is None:
-            reply = "Nie znaleziono konta dla tego użytkownika."
+            reply = "No account found for this user."
         else:
             reply = (
-                f"Twoje aktualne saldo wynosi {account.balance:.2f} {account.currency} "
-                f"na koncie {account.iban}."
+                f"Your current balance is {account.balance:.2f} {account.currency} "
+                f"on account {account.iban}."
             )
         return _store_history(user_id, message, reply), intent
 
-    # ---------- POZOSTAŁE PYTANIA → LLM ----------
+    # ---------- OTHER QUESTIONS → FALLBACK TO LLM ----------
     context = ""
     if user:
-        context += f"Użytkownik: {user.name}\n"
+        context += f"User: {user.name}\n"
     if account:
         context += (
-            f"Saldo: {account.balance:.2f} {account.currency} "
-            f"na koncie {account.iban}\n"
+            f"Balance: {account.balance:.2f} {account.currency} "
+            f"on account {account.iban}\n"
         )
 
     reply = ask_llm(message, context)

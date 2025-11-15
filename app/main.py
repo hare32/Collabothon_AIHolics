@@ -8,15 +8,15 @@ from .db import Base, engine, get_db
 from . import banking
 from .api import chat, twilio
 
-# inicjalizacja bazy
+# Initialize the database
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Collab Voice Assistant")
 
-# CORS – Twilio Voice SDK w przeglądarce
+# CORS – required for Twilio Voice SDK in the browser
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # na demo może zostać *, do produkcji zawęź
+    allow_origins=["*"],  # OK for demo, restrict for production
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -25,7 +25,7 @@ app.add_middleware(
 
 @app.on_event("startup")
 def startup() -> None:
-    # seed danych demo
+    """Seed demo data when the application starts."""
     with next(get_db()) as db:
         banking.seed_data(db)
 
@@ -38,13 +38,13 @@ def health():
 @app.get("/", response_class=HTMLResponse)
 def serve_index():
     """
-    Zwraca index.html (frontend Twilio Voice SDK).
-    Zakładam, że index.html leży w katalogu głównym projektu.
+    Returns index.html (the frontend for Twilio Voice SDK).
+    Assumes index.html is located in the project root directory.
     """
     index_path = Path("index.html")
     return index_path.read_text(encoding="utf-8")
 
 
-# rejestracja routerów HTTP i Twilio
+# Register HTTP and Twilio routers
 app.include_router(chat.router)
 app.include_router(twilio.router)

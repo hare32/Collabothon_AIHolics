@@ -4,7 +4,7 @@ from groq import Groq
 from .config import GROQ_API_KEY
 
 if not GROQ_API_KEY:
-    raise RuntimeError("Brak GROQ_API_KEY w .env – ustaw go przed uruchomieniem.")
+    raise RuntimeError("Missing GROQ_API_KEY in .env – set it before running the application.")
 
 client = Groq(api_key=GROQ_API_KEY)
 
@@ -13,50 +13,52 @@ DEFAULT_MODEL = "llama-3.1-8b-instant"
 
 def detect_intent(message: str, history: Optional[List[Tuple[str, str]]] = None) -> str:
     """
-    Wykrywa intencję użytkownika za pomocą LLM, uwzględniając historię rozmowy.
-    Zwraca jeden z trzech stringów:
-    - "make_transfer"  -> użytkownik chce zrobić przelew
-    - "check_balance"  -> użytkownik chce sprawdzić saldo / stan konta
-    - "other"          -> wszystko inne
+    Detects the user's intent using the LLM, taking conversation history into account.
+    Returns one of:
+    - "make_transfer"  -> user wants to make a money transfer
+    - "check_balance"  -> user wants to check their account balance
+    - "other"          -> anything else
     """
 
-    # z historii bierzemy kilka ostatnich wypowiedzi, żeby model wiedział, o czym była mowa
+    # Prepare recent conversation context for the model
     history_text = ""
     if history:
-        last_turns = history[-6:]  # max ~3 wymiany
+        last_turns = history[-6:]  # last ~3 exchanges
         lines = []
         for role, msg in last_turns:
-            who = "Klient" if role == "user" else "Asystent"
+            who = "User" if role == "user" else "Assistant"
             lines.append(f"{who}: {msg}")
         history_text = "\n".join(lines)
 
+    # --- INTENT CLASSIFICATION PROMPT (ENGLISH VERSION) ---
     system_prompt = (
-        "Jesteś klasyfikatorem intencji w asystencie bankowym.\n"
-        "Klient mówi po polsku. Na podstawie rozmowy zwróć TYLKO jedno słowo:\n"
-        "- make_transfer  jeśli chce wykonać przelew lub zapłacić komuś pieniądze\n"
-        "- check_balance  jeśli pyta o saldo, stan konta, ile ma pieniędzy\n"
-        "- other          jeśli wypowiedź nie dotyczy przelewu ani salda\n\n"
-        "Bierz pod uwagę historię, np. gdy wcześniej klient mówił o przelewie,\n"
-        "a teraz podaje tylko kwotę ('50 zł'), to intencja nadal jest make_transfer.\n\n"
-        "Przykłady:\n"
-        "U: Daj sąsiadowi 50 zł\n"
+        "You are an intent classifier for a banking voice assistant.\n"
+        "Based on the conversation, return ONLY ONE word:\n"
+        "- make_transfer  → if the user wants to send money or make a transfer\n"
+        "- check_balance  → if the user asks about their balance or account status\n"
+        "- other          → if the message is not about transfers or balance\n\n"
+        "Take the conversation history into account — for example, "
+        "if the user previously said they want to make a transfer, "
+        "and now only provides an amount ('50 dollars'), the intent is still make_transfer.\n\n"
+        "Examples:\n"
+        "U: Send my neighbor 50 dollars.\n"
         "A: make_transfer\n"
-        "U: Zrób przelew dla sąsiada 50 zł\n"
+        "U: Transfer 50 dollars to my neighbor.\n"
         "A: make_transfer\n"
-        "U: Ile mam pieniędzy?\n"
+        "U: How much money do I have?\n"
         "A: check_balance\n"
-        "U: Jakie jest moje saldo?\n"
+        "U: What's my balance?\n"
         "A: check_balance\n"
-        "U: Opowiedz dowcip\n"
-        "A: other\n"
-        "Nie dodawaj żadnych wyjaśnień, komentarzy ani dodatkowego tekstu."
+        "U: Tell me a joke.\n"
+        "A: other\n\n"
+        "Do NOT add explanations, comments, or any extra text."
     )
 
     if history_text:
         user_prompt = (
-            f"Oto fragment dotychczasowej rozmowy:\n{history_text}\n\n"
-            f"Ostatnie zdanie klienta: {message}\n"
-            "Na tej podstawie zwróć tylko etykietę intencji."
+            f"Here is the recent conversation:\n{history_text}\n\n"
+            f"User's latest message: {message}\n"
+            "Return ONLY the intent label."
         )
     else:
         user_prompt = message
@@ -75,30 +77,32 @@ def detect_intent(message: str, history: Optional[List[Tuple[str, str]]] = None)
         content = completion.choices[0].message.content or ""
         intent_raw = content.strip().lower()
 
-        # prosta normalizacja, gdyby model odpisał np. z dużej litery
+        # Normalize unexpected outputs
         mapping = {
             "make_transfer": "make_transfer",
             "check_balance": "check_balance",
             "other": "other",
-            # na wszelki wypadek, gdyby zwrócił po polsku
-            "przelew": "make_transfer",
-            "saldo": "check_balance",
         }
 
         return mapping.get(intent_raw, "other")
 
     except Exception as e:
-        # w razie problemów z LLM – nie blokujemy całej aplikacji
         print("[WARN] detect_intent LLM error:", e)
         return "other"
 
 
 def ask_llm(message: str, context: str) -> str:
+    """
+    Sends the user's question + context to the LLM
+    and returns the assistant's natural language answer.
+    """
+
+    # --- MAIN ASSISTANT PROMPT (ENGLISH VERSION) ---
     prompt = (
-        "Jesteś wirtualnym asystentem bankowym. "
-        "Odpowiadasz krótko, jasno, po polsku.\n\n"
-        f"Kontekst klienta:\n{context}\n\n"
-        f"Pytanie klienta: {message}\n"
+        "You are a virtual banking assistant. "
+        "Respond clearly, briefly, and in English.\n\n"
+        f"User context:\n{context}\n\n"
+        f"User question: {message}\n"
     )
 
     completion = client.chat.completions.create(
@@ -106,7 +110,7 @@ def ask_llm(message: str, context: str) -> str:
         messages=[
             {
                 "role": "system",
-                "content": "Jesteś asystentem bankowym mówiącym po polsku.",
+                "content": "You are a helpful English-speaking banking assistant.",
             },
             {"role": "user", "content": prompt},
         ],

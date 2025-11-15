@@ -24,18 +24,21 @@ router = APIRouter(prefix="/twilio", tags=["twilio"])
 @router.get("/token")
 def twilio_token():
     """
-    Token do Twilio Voice SDK (WebRTC w przeglądarce).
+    Generates a token for Twilio Voice SDK (WebRTC in the browser).
     """
     if not (
         TWILIO_ACCOUNT_SID and TWILIO_API_KEY and TWILIO_API_SECRET and TWIML_APP_SID
     ):
         return JSONResponse(
             status_code=500,
-            content={"error": "Brak konfiguracji Twilio w zmiennych środowiskowych."},
+            content={"error": "Missing Twilio configuration in environment variables."},
         )
 
     token = AccessToken(
-        TWILIO_ACCOUNT_SID, TWILIO_API_KEY, TWILIO_API_SECRET, identity="browser_user"
+        TWILIO_ACCOUNT_SID,
+        TWILIO_API_KEY,
+        TWILIO_API_SECRET,
+        identity="browser_user",
     )
     voice_grant = VoiceGrant(outgoing_application_sid=TWIML_APP_SID)
     token.add_grant(voice_grant)
@@ -53,47 +56,47 @@ def twilio_voice(
     db: Session = Depends(get_db),
 ):
     """
-    Webhook Twilio Voice – rozmowa telefoniczna z asystentem bankowym.
+    Twilio Voice webhook — phone call conversation with the banking assistant.
     """
     resp = VoiceResponse()
 
-    # Pierwsze wejście – brak rozpoznanego tekstu, prosimy o wypowiedź
+    # First interaction — no speech recognized yet, ask user to speak
     if not SpeechResult:
         gather = Gather(
             input="speech",
-            language="pl-PL",
+            language="en-US",
             action="/twilio/voice",
             method="POST",
             speech_timeout="auto",
         )
         gather.say(
-            "Cześć, tu asystent bankowy. "
-            "Możesz zapytać o saldo albo zlecić przelew.",
-            language="pl-PL",
+            "Hello, this is your banking assistant. "
+            "You can ask about your balance or request a money transfer.",
+            language="en-US",
         )
         resp.append(gather)
 
-        resp.say("Nie usłyszałem nic. Rozłączam się.", language="pl-PL")
+        resp.say("I didn't hear anything. Ending the call.", language="en-US")
         return Response(content=str(resp), media_type="application/xml")
 
-    # Mamy tekst rozpoznany przez Twilio STT
+    # We received speech recognized by Twilio STT
     print("USER SAID:", SpeechResult)
 
     reply, intent = process_message(SpeechResult, BACKEND_USER_ID, db)
     print("BACKEND ANSWER:", reply, "| INTENT:", intent)
 
-    # Odpowiedź głosowa
-    resp.say(reply, language="pl-PL")
+    # Voice response with assistant's answer
+    resp.say(reply, language="en-US")
 
-    # Kolejna runda rozmowy
+    # Next round of conversation
     gather = Gather(
         input="speech",
-        language="pl-PL",
+        language="en-US",
         action="/twilio/voice",
         method="POST",
         speech_timeout="auto",
     )
-    gather.say("Możesz zadać kolejne pytanie.", language="pl-PL")
+    gather.say("You can ask another question.", language="en-US")
     resp.append(gather)
 
     return Response(content=str(resp), media_type="application/xml")

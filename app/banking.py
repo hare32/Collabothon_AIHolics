@@ -6,11 +6,11 @@ from .models import User, Account
 
 
 def seed_data(db: Session) -> None:
-    """Dodaje podstawowego użytkownika i konto, jeśli baza jest pusta."""
+    """Adds a default user and account if the database is empty."""
     if db.execute(select(User)).first():
         return
 
-    user = User(id="user-1", name="Jan Kowalski", phone="+48123123123")
+    user = User(id="user-1", name="John Smith", phone="+48123123123")
     db.add(user)
 
     acc = Account(
@@ -37,18 +37,18 @@ def get_account_for_user(db: Session, user_id: str) -> Optional[Account]:
 
 def perform_transfer(db: Session, user_id: str, amount: float) -> Account:
     """
-    Wykonuje przelew (odejmuje saldo).
-    Waliduje środki i kwotę.
+    Performs a money transfer (subtracts the balance).
+    Validates funds and the transfer amount.
     """
     account = get_account_for_user(db, user_id)
     if account is None:
-        raise ValueError("Brak konta dla użytkownika.")
+        raise ValueError("No account found for this user.")
 
     if amount <= 0:
-        raise ValueError("Kwota przelewu musi być dodatnia.")
+        raise ValueError("The transfer amount must be positive.")
 
     if account.balance < amount:
-        raise ValueError("Niewystarczające środki na koncie.")
+        raise ValueError("Insufficient funds on the account.")
 
     account.balance -= amount
     db.commit()
