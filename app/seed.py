@@ -7,17 +7,17 @@ from .models import User, Account, Transaction, Contact
 
 def seed_demo_data(db: Session) -> None:
     """
-    Dodaje demo-usera, konto, kontakty i historię,
-    jeśli baza jest pusta.
+    Adds a demo user, account, contacts and transaction history
+    if the database is empty.
     """
     if db.execute(select(User)).first():
         return
 
-    # --- UŻYTKOWNIK ---
-    user = User(id="user-1", name="Jan Kowalski", phone="+48123123123")
+    # --- USER ---
+    user = User(id="user-1", name="John Smith", phone="+48123123123")
     db.add(user)
 
-    # --- KONTO (startujemy z 4000, potem odejmiemy transakcje => wyjdzie ~2500) ---
+    # --- ACCOUNT (start at 4000, then subtract transactions => ~2500) ---
     acc = Account(
         id="acc-1",
         user_id="user-1",
@@ -27,114 +27,114 @@ def seed_demo_data(db: Session) -> None:
     )
     db.add(acc)
 
-    # --- KONTAKTY (zapisani odbiorcy) ---
+    # --- CONTACTS (saved recipients) ---
     contacts = [
         Contact(
             user_id="user-1",
-            nickname="mama",
-            full_name="Barbara Kowalska",
+            nickname="mom",
+            full_name="Barbara Smith",
             iban="PL27114020040000300201355387",
-            default_title="Przelew dla mamy",
+            default_title="Transfer for mom",
         ),
         Contact(
             user_id="user-1",
-            nickname="tata",
-            full_name="Andrzej Kowalski",
+            nickname="dad",
+            full_name="Andrew Smith",
             iban="PL02105000997603123456789123",
-            default_title="Przelew dla taty",
+            default_title="Transfer for dad",
         ),
         Contact(
             user_id="user-1",
-            nickname="wnuczek",
-            full_name="Maciej Nowak",
+            nickname="grandson",
+            full_name="Michael Nowak",
             iban="PL12116022020000000012345678",
-            default_title="Prezent dla wnuczka",
+            default_title="Gift for grandson",
         ),
         Contact(
             user_id="user-1",
-            nickname="sąsiad",
-            full_name="Adam Zieliński",
+            nickname="neighbor",
+            full_name="Adam Green",
             iban="PL88114020040000300201399999",
-            default_title="Pożyczka dla sąsiada",
+            default_title="Loan for neighbor",
         ),
         Contact(
             user_id="user-1",
-            nickname="fundusz alimentacyjny",
-            full_name="Fundusz Alimentacyjny",
+            nickname="child_support_fund",
+            full_name="Child Support Fund",
             iban="PL12109010140000071219800000",
-            default_title="Wpłata na fundusz alimentacyjny",
+            default_title="Payment to child support fund",
         ),
         Contact(
             user_id="user-1",
-            nickname="spółdzielnia",
-            full_name="Spółdzielnia Mieszkaniowa Zielona",
+            nickname="housing_cooperative",
+            full_name="Green Housing Cooperative",
             iban="PL34175000120000000012345678",
-            default_title="Czynsz za mieszkanie",
+            default_title="Apartment rent",
         ),
     ]
     for c in contacts:
         db.add(c)
 
-    # --- 10 PRZYKŁADOWYCH TRANSAKCJI HISTORII ---
+    # --- 10 SAMPLE HISTORY TRANSACTIONS ---
     initial_transactions = [
         (
-            "Spółdzielnia Mieszkaniowa Zielona",
+            "Green Housing Cooperative",
             "PL34175000120000000012345678",
-            "Czynsz za mieszkanie",
+            "Apartment rent",
             1200.0,
         ),
         (
-            "PGE Obrót",
+            "PGE Energy",
             "PL64102055581111123456789012",
-            "Rachunek za prąd",
+            "Electricity bill",
             100.0,
         ),
         (
-            "Orange Polska",
+            "Orange Telecom",
             "PL27114020040000300201311111",
-            "Abonament telefoniczny",
+            "Phone subscription",
             60.0,
         ),
         (
-            "UPC Polska",
+            "UPC Internet",
             "PL30102055581111123456789099",
-            "Internet w domu",
+            "Home internet",
             40.0,
         ),
         (
-            "Maciej Nowak",
+            "Michael Nowak",
             "PL12116022020000000012345678",
-            "Prezent dla wnuczka",
+            "Gift for grandson",
             50.0,
         ),
         (
-            "Kino Helios",
+            "Helios Cinema",
             "PL12105000997603123456789111",
-            "Wyjście do kina",
+            "Cinema night",
             30.0,
         ),
         (
-            "WOŚP",
+            "Charity WOŚP",
             "PL30114020040000300201322222",
-            "Darowizna na WOŚP",
+            "Charity donation",
             10.0,
         ),
         (
-            "Adam Zieliński",
+            "Adam Green",
             "PL88114020040000300201399999",
-            "Zwrot za zakupy",
+            "Shopping refund",
             5.0,
         ),
         (
-            "MPK Łódź",
+            "MPK Lodz",
             "PL27114020040000300201344444",
-            "Bilet miesięczny",
+            "Monthly ticket",
             3.0,
         ),
         (
-            "Fundusz Alimentacyjny",
+            "Child Support Fund",
             "PL12109010140000071219800000",
-            "Wpłata na fundusz alimentacyjny",
+            "Payment to child support fund",
             2.0,
         ),
     ]
@@ -148,6 +148,6 @@ def seed_demo_data(db: Session) -> None:
             amount=amount,
         )
         db.add(tx)
-        acc.balance -= amount  # historia faktycznie obniża saldo
+        acc.balance -= amount  # history actually reduces the balance
 
     db.commit()

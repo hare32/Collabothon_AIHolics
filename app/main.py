@@ -6,14 +6,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 
 from .db import Base, engine, get_db
-from .seed import seed_demo_data  # <-- nowy import
+from .seed import seed_demo_data
 from .api import chat, twilio, banking as banking_api
 
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Collab Voice Assistant")
 
-# CORS – Twilio Voice SDK w przeglądarce
+# CORS – Twilio Voice SDK in the browser
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -25,9 +25,9 @@ app.add_middleware(
 
 @app.on_event("startup")
 def startup() -> None:
-    # seed danych demo
+    # Seed demo data
     with next(get_db()) as db:
-        seed_demo_data(db)  # <-- tu używamy nowego modułu
+        seed_demo_data(db)
 
 
 @app.get("/health")
@@ -38,8 +38,8 @@ def health():
 @app.get("/", response_class=HTMLResponse)
 def serve_index():
     """
-    Zwraca index.html (frontend Twilio Voice SDK).
-    Zakładam, że index.html leży w katalogu głównym projektu.
+    Returns index.html (Twilio Voice SDK frontend).
+    Assumes index.html is in the project root directory.
     """
     index_path = Path("index.html")
     return index_path.read_text(encoding="utf-8")

@@ -13,7 +13,7 @@
 
         async function initAndCall() {
           try {
-            // Używamy ścieżki względnej - działa lokalnie i za ngrok
+            // Use relative path – works locally and via ngrok
             const res = await fetch("/twilio/token");
             const data = await res.json();
             const token = data.token;
@@ -36,7 +36,7 @@
               });
 
               device.on("connect", (call) => {
-                console.log("Połączenie zestawione:", call);
+                console.log("Call established:", call);
                 activeCall = call;
                 call.on("disconnect", () => {
                   console.log("Call disconnected");
@@ -55,7 +55,7 @@
                 console.log("Device already exists – connecting...");
                 activeCall = device.connect();
               } else {
-                console.log("Call already active – nie dzwonię drugi raz");
+                console.log("Call already active – not starting another one");
               }
             }
           } catch (e) {
