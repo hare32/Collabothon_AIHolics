@@ -4,7 +4,7 @@ from typing import Optional, Tuple, List
 from sqlalchemy.orm import Session
 
 from . import banking
-from .llm import detect_intent, ask_llm, extract_recipient
+from .llm import detect_intent, ask_llm, extract_recipient, refers_to_same_amount_as_last_time
 from .assistant_utils import (
     conversation_history,
     store_history,
@@ -43,15 +43,7 @@ def process_message(
             reply = "I couldn't find an account for this user."
             return store_history(user_id, message, reply), intent
 
-        amount = extract_amount(message)
-        if amount <= 0:
-            reply = (
-                "I understand you want to make a transfer, but I couldn't detect the amount. "
-                "Please say the amount, for example '50 PLN'."
-            )
-            return store_history(user_id, message, reply), intent
-
-        # Extract recipient label from speech using LLM (e.g. 'mom', 'grandson')
+        # 1. Najpierw odbiorca
         recipient_label = extract_recipient(message, history)
         if not recipient_label:
             reply = (
@@ -60,7 +52,6 @@ def process_message(
             )
             return store_history(user_id, message, reply), intent
 
-        # Map this label to a saved contact (mom -> Barbara Smith, etc.)
         contact = banking.resolve_contact(db, user_id, recipient_label)
 
         if not contact:
@@ -75,6 +66,27 @@ def process_message(
         title = contact.default_title or f"Transfer to {contact.full_name}"
         pretty_label = f"{contact.full_name} ({contact.nickname})"
 
+        # 2. Kwota
+        amount = extract_amount(message)
+
+        # jeśli kwoty brak → zapytaj LLM czy chodzi o "taką samą kwotę jak ostatnio"
+        if amount is None or amount <= 0:
+            if refers_to_same_amount_as_last_time(message, history):
+                last_tx = banking.get_last_transfer_to_contact(
+                    db, user_id, recipient_name
+                )
+                if last_tx:
+                    amount = last_tx.amount
+
+        # jeśli dalej brak sensownej kwoty → dopiero wtedy prosimy usera
+        if amount is None or amount <= 0:
+            reply = (
+                "I understand you want to make a transfer, but I couldn't detect the amount. "
+                "You can say, for example, '50 PLN' or 'for the same amount as last time to my mom'."
+            )
+            return store_history(user_id, message, reply), intent
+
+        # 3. Właściwy przelew
         try:
             updated = banking.perform_transfer(
                 db,
@@ -85,7 +97,6 @@ def process_message(
                 title=title,
             )
         except ValueError as e:
-            # e.g. insufficient funds
             reply = str(e)
             return store_history(user_id, message, reply), intent
 
@@ -93,9 +104,9 @@ def process_message(
             f"A transfer of {amount:.2f} {updated.currency} has been executed "
             f"to: {pretty_label}. "
             f"Your current balance is {updated.balance:.2f} {updated.currency} "
-            f"on account {updated.iban}."
         )
         return store_history(user_id, message, reply), intent
+
 
     # ---------- INTENT: CHECK BALANCE ----------
     if intent == "check_balance":
@@ -104,7 +115,6 @@ def process_message(
         else:
             reply = (
                 f"Your current balance is {account.balance:.2f} {account.currency} "
-                f"on account {account.iban}."
             )
         return store_history(user_id, message, reply), intent
 
@@ -135,7 +145,6 @@ def process_message(
     if account:
         context += (
             f"Balance: {account.balance:.2f} {account.currency} "
-            f"on account {account.iban}\n"
         )
 
     reply = ask_llm(message, context)

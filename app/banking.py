@@ -121,3 +121,22 @@ def get_transactions_for_user(
         stmt = stmt.limit(limit)
 
     return db.execute(stmt).scalars().all()
+
+def get_last_transfer_to_contact(
+    db: Session,
+    user_id: str,
+    recipient_name: str,
+) -> Optional[Transaction]:
+    """
+    Zwraca ostatni przelew do danego odbiorcy (po nazwie), jeśli istnieje.
+    """
+    stmt = (
+        select(Transaction)
+        .where(
+            Transaction.sender_id == user_id,
+            Transaction.recipient_name == recipient_name,
+        )
+        .order_by(Transaction.timestamp.desc())
+        .limit(1)
+    )
+    return db.execute(stmt).scalars().first()

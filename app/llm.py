@@ -1,5 +1,5 @@
 from typing import List, Tuple, Optional, Dict
-
+from typing import Optional, List, Tuple
 from groq import Groq
 from .config import GROQ_API_KEY
 
@@ -40,6 +40,7 @@ def detect_intent(message: str, history: Optional[List[Tuple[str, str]]] = None)
         "- other          if the utterance does not match the above\n\n"
         "Take conversation history into account, e.g. if the customer previously talked about a transfer,\n"
         "and now only says an amount ('50'), the intent is still make_transfer.\n\n"
+        "Do not say whole bank numbers when confirming an transfer or giving customer`s balance"
         "Examples:\n"
         "U: Send 50 to my neighbor\n"
         "A: make_transfer\n"
@@ -268,3 +269,71 @@ def match_contact_label(label: str, contacts: List[Dict[str, str]]) -> Optional[
     except Exception as e:
         print("[WARN] match_contact_label LLM error:", e)
         return None
+
+def refers_to_same_amount_as_last_time(
+    message: str, history: Optional[List[Tuple[str, str]]] = None
+) -> bool:
+    """
+    Zwraca True, jeśli z wypowiedzi wynika, że user chce użyć
+    TAKIEJ SAMEJ KWOTY jak poprzednio (np. do tego samego odbiorcy).
+    Np.:
+      - "for the same amount as last time"
+      - "for the same amount I made this time"
+      - "taka sama kwota jak ostatnio"
+      - "za kwotę za którą ostatnio go wysłałem"
+    """
+
+    history_text = ""
+    if history:
+        last_turns = history[-6:]
+        lines = []
+        for role, msg in last_turns:
+            who = "Customer" if role == "user" else "Assistant"
+            lines.append(f"{who}: {msg}")
+        history_text = "\n".join(lines)
+
+    system_prompt = (
+        "You are a classifier in a banking assistant.\n"
+        "Decide if the customer is asking to use the SAME AMOUNT as in a previous transfer.\n"
+        "Examples that mean YES:\n"
+        "- 'for the same amount as last time'\n"
+        "- 'for the same amount I made this time'\n"
+        "- 'same amount as the last transfer to my mom'\n"
+        "- 'taka sama kwota jak ostatnio'\n"
+        "- 'za kwotę za którą ostatnio go wysłałem'\n\n"
+        "Examples that mean NO:\n"
+        "- 'send 50 PLN to my mom'\n"
+        "- 'send all my money to my mom'\n"
+        "- 'send half of my balance to my mom'\n"
+        "- 'send some money to my mom'\n\n"
+        "Return EXACTLY one word: YES or NO."
+    )
+
+    if history_text:
+        user_prompt = (
+            f"Conversation so far:\n{history_text}\n\n"
+            f"Customer's last sentence: {message}\n"
+            "Does the customer want to use the SAME AMOUNT as a previous transfer? Answer YES or NO."
+        )
+    else:
+        user_prompt = (
+            f"Customer's sentence: {message}\n"
+            "Does the customer want to use the SAME AMOUNT as a previous transfer? Answer YES or NO."
+        )
+
+    try:
+        completion = client.chat.completions.create(
+            model=DEFAULT_MODEL,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0.0,
+            max_tokens=3,
+        )
+
+        content = (completion.choices[0].message.content or "").strip().upper()
+        return content == "YES"
+    except Exception as e:
+        print("[WARN] refers_to_same_amount_as_last_time LLM error:", e)
+        return False
