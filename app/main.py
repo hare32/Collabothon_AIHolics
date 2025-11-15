@@ -1,3 +1,4 @@
+# app/main.py
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -5,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 
 from .db import Base, engine, get_db
-from . import banking
+from .seed import seed_demo_data  # <-- nowy import
 from .api import chat, twilio, banking as banking_api
 
 Base.metadata.create_all(bind=engine)
@@ -26,7 +27,7 @@ app.add_middleware(
 def startup() -> None:
     # seed danych demo
     with next(get_db()) as db:
-        banking.seed_data(db)
+        seed_demo_data(db)  # <-- tu używamy nowego modułu
 
 
 @app.get("/health")

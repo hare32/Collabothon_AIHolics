@@ -1,1 +1,1 @@
-from . import chat, twilio  # noqa: F401
+from . import chat, twilio, banking  # noqa: F401

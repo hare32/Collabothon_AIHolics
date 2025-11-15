@@ -1,4 +1,4 @@
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Dict
 
 from groq import Groq
 from .config import GROQ_API_KEY
@@ -194,3 +194,77 @@ def ask_llm(message: str, context: str) -> str:
 
     content = completion.choices[0].message.content or ""
     return content.strip()
+
+
+def match_contact_label(label: str, contacts: List[Dict[str, str]]) -> Optional[str]:
+    """
+    Używa LLM, aby dopasować frazę z mowy (np. 'do mojej mamy', 'dla wnuczki')
+    do jednego z kontaktów.
+
+    contacts: lista słowników:
+      {
+        "nickname": "mama",
+        "full_name": "Barbara Kowalska"
+      }
+
+    Zwraca:
+      - nickname kontaktu (np. 'mama') jeśli LLM znajdzie sensowne dopasowanie
+      - None jeśli brak jednoznacznego dopasowania (LLM ma zwrócić 'NONE')
+    """
+    label = (label or "").strip()
+    if not label or not contacts:
+        return None
+
+    # Budujemy listę kontaktów do pokazania LLM
+    lines = []
+    for c in contacts:
+        nick = c.get("nickname", "")
+        full = c.get("full_name", "")
+        lines.append(f"- nickname: {nick}, name: {full}")
+    contacts_text = "\n".join(lines)
+
+    system_prompt = (
+        "Jesteś modułem dopasowującym odbiorcę przelewu do zapisanych kontaktów.\n"
+        "Klient mówi po polsku i używa określeń typu 'do mojej mamy', 'dla wnuczki', "
+        "'do funduszu alimentacyjnego', itp.\n\n"
+        "Dostajesz:\n"
+        "- FRAZĘ od klienta opisującą odbiorcę przelewu\n"
+        "- LISTĘ kontaktów, gdzie każdy ma 'nickname' i pełną nazwę.\n\n"
+        "Twoje zadanie:\n"
+        "- wybierz ten kontakt, który NAJBARDZIEJ pasuje znaczeniowo do frazy klienta\n"
+        "- zwróć DOKŁADNIE wartość 'nickname' wybranego kontaktu\n"
+        "- jeśli żaden kontakt nie pasuje sensownie, zwróć dokładnie: NONE\n\n"
+        "Nie dodawaj żadnych wyjaśnień, komentarzy ani dodatkowego tekstu."
+    )
+
+    user_prompt = (
+        f"FRAZA KLIENTA: {label}\n\n"
+        f"LISTA KONTAKTÓW:\n{contacts_text}\n\n"
+        "Zwróć tylko nickname najlepiej pasującego kontaktu albo NONE."
+    )
+
+    try:
+        completion = client.chat.completions.create(
+            model=DEFAULT_MODEL,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0.0,
+            max_tokens=10,
+        )
+
+        content = completion.choices[0].message.content or ""
+        raw = content.strip()
+
+        if not raw:
+            return None
+
+        if raw.upper() == "NONE":
+            return None
+
+        return raw
+
+    except Exception as e:
+        print("[WARN] match_contact_label LLM error:", e)
+        return None
