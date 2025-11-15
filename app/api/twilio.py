@@ -46,18 +46,14 @@ def twilio_token():
 
     return {"token": jwt_token}
 
-
 @router.post("/voice")
 def twilio_voice(
     SpeechResult: Optional[str] = Form(default=None),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db)
 ):
-    """
-    Twilio Voice webhook – phone conversation with the banking assistant.
-    """
     resp = VoiceResponse()
 
-    # First entry – no recognized text yet, ask user to speak
+    # Pierwsze wejście — pytamy o imię i nazwisko
     if not SpeechResult:
         gather = Gather(
             input="speech",
@@ -66,26 +62,47 @@ def twilio_voice(
             method="POST",
             speech_timeout="auto",
         )
-        gather.say(
-            "Hi, this is your banking assistant. "
-            "You can ask about your balance or request a transfer.",
-            language="en-US",
-        )
+        gather.say("Welcome to your banking assistant. Please say your full name to begin.", language="en-US")
         resp.append(gather)
 
         resp.say("I didn't hear anything. Goodbye.", language="en-US")
         return Response(content=str(resp), media_type="application/xml")
 
-    # We have text recognized by Twilio STT
     print("USER SAID:", SpeechResult)
 
     reply, intent = process_message(SpeechResult, BACKEND_USER_ID, db)
-    print("BACKEND ANSWER:", reply, "| INTENT:", intent)
+    print("BACKEND:", reply, "| INTENT:", intent)
 
-    # Voice response
+    # Jeśli użytkownik ma kontynuować autentykację
+    if intent == "auth_continue":
+        gather = Gather(
+            input="speech",
+            language="en-US",
+            action="/twilio/voice",
+            method="POST",
+            speech_timeout="auto",
+        )
+        gather.say(reply, language="en-US")
+        resp.append(gather)
+        return Response(content=str(resp), media_type="application/xml")
+
+    # Autentykacja OK → przechodzimy do bankingu
+    if intent == "auth_success":
+        gather = Gather(
+            input="speech",
+            language="en-US",
+            action="/twilio/voice",
+            method="POST",
+            speech_timeout="auto",
+        )
+        gather.say(reply, language="en-US")
+        gather.say("How can I help you today?", language="en-US")
+        resp.append(gather)
+        return Response(content=str(resp), media_type="application/xml")
+
+    # Normalna operacja bankowa
     resp.say(reply, language="en-US")
 
-    # Next turn of the conversation
     gather = Gather(
         input="speech",
         language="en-US",
@@ -93,7 +110,7 @@ def twilio_voice(
         method="POST",
         speech_timeout="auto",
     )
-    gather.say("You can ask another question.", language="en-US")
+    gather.say("You may ask another question.", language="en-US")
     resp.append(gather)
 
     return Response(content=str(resp), media_type="application/xml")

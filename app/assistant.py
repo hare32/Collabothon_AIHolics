@@ -1,5 +1,6 @@
 # app/assistant.py
 from typing import Optional, Tuple, List
+from collections import defaultdict
 
 from sqlalchemy.orm import Session
 
@@ -14,30 +15,104 @@ from .assistant_utils import (
 )
 
 
+# =====================================================
+#         AUTHENTICATION STATE (per user)
+# =====================================================
+
+auth_step = defaultdict(int)
+# 0 = ask full name
+# 1 = ask last 4 digits of PESEL
+# 2 = ask PIN
+# 3 = authenticated
+
+auth_failed_attempts = defaultdict(int)
+
+
+# =====================================================
+#               AUTHENTICATION LOGIC
+# =====================================================
+
+def authenticate_user(message: str, user, user_id: str) -> Tuple[str, str]:
+    """
+    Multi-step authentication:
+        STEP 0 → full name
+        STEP 1 → last 4 digits of PESEL
+        STEP 2 → 4-digit PIN
+        STEP 3 → authenticated
+    No limits. Assistant always asks again.
+    """
+
+    msg = message.lower().replace(" ", "")
+
+    # STEP 0 – full name
+    if auth_step[user_id] == 0:
+        full = user.name.lower().replace(" ", "")
+        if full in msg:
+            auth_step[user_id] = 1
+            return (
+                "Name confirmed. Please say the last four digits of your national ID.",
+                "auth_continue",
+            )
+        else:
+            return (
+                "I didn’t recognize your name. Please repeat your full name.",
+                "auth_continue",
+            )
+
+    # STEP 1 – last 4 of PESEL
+    if auth_step[user_id] == 1:
+        last4 = user.pesel[-4:]
+        if last4 in msg:
+            auth_step[user_id] = 2
+            return (
+                "ID digits confirmed. Please state your four-digit PIN.",
+                "auth_continue",
+            )
+        else:
+            return (
+                "Those digits do not match our records. Please repeat the last four digits of your ID.",
+                "auth_continue",
+            )
+
+    # STEP 2 – PIN
+    if auth_step[user_id] == 2:
+        if user.pin_code in msg:
+            auth_step[user_id] = 3
+            return (
+                "Authentication successful.",
+                "auth_success",
+            )
+        else:
+            return (
+                "Incorrect PIN. Please repeat your four-digit PIN.",
+                "auth_continue",
+            )
+
+    return "","other"
+
+
+# =====================================================
+#               MAIN ASSISTANT LOGIC
+# =====================================================
+
 def process_message(
     message: str, user_id: str, db: Session
 ) -> Tuple[str, Optional[str]]:
-    """
-    Main assistant logic:
-    - intent detection
-    - money transfer
-    - balance check
-    - transaction history
-    - fallback to LLM
-
-    Returns (reply, intent).
-    """
-
-    # conversation history for this user
-    history = conversation_history[user_id]
-
-    # ---------- INTENT DETECTION (with history) ----------
-    intent = detect_intent(message, history)
 
     user = banking.get_user(db, user_id)
     account = banking.get_account_for_user(db, user_id)
 
-    # ---------- INTENT: MAKE TRANSFER ----------
+    # ---------- AUTHENTICATION FIRST ----------
+    if auth_step[user_id] < 3:
+        return authenticate_user(message, user, user_id)
+
+    # conversation history for this user
+    history = conversation_history[user_id]
+
+    # ---------- INTENT DETECTION ----------
+    intent = detect_intent(message, history)
+
+    # ---------- MAKE TRANSFER ----------
     if intent == "make_transfer":
         if account is None:
             reply = "I couldn't find an account for this user."
@@ -47,20 +122,20 @@ def process_message(
         if amount <= 0:
             reply = (
                 "I understand you want to make a transfer, but I couldn't detect the amount. "
-                "Please say the amount, for example '50 PLN'."
+                "Please say: 'Send 50 PLN to my mom'."
             )
             return store_history(user_id, message, reply), intent
 
-        # Extract recipient label from speech using LLM (e.g. 'mom', 'grandson')
+        # Extract recipient label from speech using LLM
         recipient_label = extract_recipient(message, history)
         if not recipient_label:
             reply = (
                 "I didn't understand who the transfer should be sent to. "
-                "For example, say 'send 50 PLN to my mom'."
+                "For example: 'Send 50 PLN to my neighbor'."
             )
             return store_history(user_id, message, reply), intent
 
-        # Map this label to a saved contact (mom -> Barbara Smith, etc.)
+        # Resolve contact (mom → Barbara Smith etc.)
         contact = banking.resolve_contact(db, user_id, recipient_label)
 
         if not contact:
@@ -73,6 +148,7 @@ def process_message(
         recipient_name = contact.full_name
         recipient_iban = contact.iban
         title = contact.default_title or f"Transfer to {contact.full_name}"
+
         pretty_label = f"{contact.full_name} ({contact.nickname})"
 
         try:
@@ -85,19 +161,18 @@ def process_message(
                 title=title,
             )
         except ValueError as e:
-            # e.g. insufficient funds
             reply = str(e)
             return store_history(user_id, message, reply), intent
 
         reply = (
-            f"A transfer of {amount:.2f} {updated.currency} has been executed "
-            f"to: {pretty_label}. "
+            f"A transfer of {amount:.2f} {updated.currency} has been executed to {pretty_label}. "
             f"Your current balance is {updated.balance:.2f} {updated.currency} "
             f"on account {updated.iban}."
         )
+
         return store_history(user_id, message, reply), intent
 
-    # ---------- INTENT: CHECK BALANCE ----------
+    # ---------- CHECK BALANCE ----------
     if intent == "check_balance":
         if account is None:
             reply = "I couldn't find an account for this user."
@@ -108,9 +183,8 @@ def process_message(
             )
         return store_history(user_id, message, reply), intent
 
-    # ---------- INTENT: SHOW HISTORY ----------
+    # ---------- SHOW HISTORY ----------
     if intent == "show_history":
-        # how many last transfers? (default 3)
         limit = extract_history_limit(message, default=3, max_limit=10)
         transactions = banking.get_transactions_for_user(db, user_id, limit=limit)
 
@@ -118,17 +192,15 @@ def process_message(
             reply = "I couldn't find any transfers in your history."
             return store_history(user_id, message, reply), intent
 
-        lines: List[str] = []
+        lines = []
         for t in transactions:
             amount_text = format_amount_pln(t.amount)
-            lines.append(
-                f"Transfer of {amount_text} to {t.recipient_name}, " f"title: {t.title}"
-            )
+            lines.append(f"Transfer of {amount_text} to {t.recipient_name}, title: {t.title}")
 
         reply = "Here are your recent transfers:\n" + "\n".join(lines)
         return store_history(user_id, message, reply), intent
 
-    # ---------- OTHER QUESTIONS → LLM ----------
+    # ---------- OTHER QUESTIONS (LLM fallback) ----------
     context = ""
     if user:
         context += f"User: {user.name}\n"

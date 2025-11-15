@@ -6,26 +6,19 @@ from .models import User, Account, Transaction, Contact
 
 
 def seed_demo_data(db: Session) -> None:
-    """
-    Adds a demo user, account, contacts and transaction history
-    if the database is empty.
-    """
     if db.execute(select(User)).first():
         return
 
     # --- USER ---
-    user = User(id="user-1", name="John Smith", phone="+48123123123")
+    user = User(
+        id="user-1",
+        name="John Smith",
+        pesel="12345678901",
+        pin_code="4321",
+        phone="+48123123123",
+    )
     db.add(user)
 
-    # --- ACCOUNT (start at 4000, then subtract transactions => ~2500) ---
-    acc = Account(
-        id="acc-1",
-        user_id="user-1",
-        iban="PL61109010140000071219812874",
-        balance=4000.00,
-        currency="PLN",
-    )
-    db.add(acc)
 
     # --- CONTACTS (saved recipients) ---
     contacts = [
