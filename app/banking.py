@@ -1,4 +1,4 @@
-from typing import Optional, List
+from typing import Optional, List, Sequence
 
 from sqlalchemy.orm import Session
 from sqlalchemy import select
@@ -67,7 +67,7 @@ def perform_transfer(
     return account
 
 
-def get_transactions_for_user(db: Session, user_id: str) -> List[Transaction]:
+def get_transactions_for_user(db: Session, user_id: str) -> Sequence[Transaction]:
     """
     Pobiera historię transakcji, gdzie użytkownik był NADAWCĄ.
     """
