@@ -23,7 +23,7 @@ def seed_demo_data(db: Session) -> None:
     )
     db.add(user)
 
-    # --- ACCOUNT (start at 4000, then subtract transactions => ~2500) ---
+    # --- ACCOUNT (start at 4000, then subtract transactions => ~?)
     acc = Account(
         id="acc-1",
         user_id="user-1",
@@ -70,9 +70,10 @@ def seed_demo_data(db: Session) -> None:
             iban="PL12109010140000071219800000",
             default_title="Payment to child support fund",
         ),
+        # KLUCZOWY KONTAKT DO DEMA – RENT
         Contact(
             user_id="user-1",
-            nickname="housing_cooperative",
+            nickname="rent",  # <--- ważne, żeby LLM mógł skojarzyć "the rent"
             full_name="Green Housing Cooperative",
             iban="PL34175000120000000012345678",
             default_title="Apartment rent",
@@ -81,13 +82,14 @@ def seed_demo_data(db: Session) -> None:
     for c in contacts:
         db.add(c)
 
-    # --- 10 SAMPLE HISTORY TRANSACTIONS ---
+    # --- SAMPLE HISTORY TRANSACTIONS ---
+    # Pierwsza transakcja: czynsz 700 PLN do Green Housing Cooperative
     initial_transactions = [
         (
             "Green Housing Cooperative",
             "PL34175000120000000012345678",
             "Apartment rent",
-            1200.0,
+            700.0,  # <--- kwota "jak w przykładzie"
         ),
         (
             "PGE Energy",

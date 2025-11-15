@@ -23,6 +23,10 @@ def resolve_contact(db: Session, user_id: str, label: str) -> Optional[Contact]:
     Uses LLM (match_contact_label) to map a phrase from speech to one of the contacts.
     Example:
       label: 'to my mom'  -> LLM picks nickname 'mom'  -> contact 'Barbara Smith'
+
+    Dodatkowo:
+    - jeżeli label dokładnie pasuje do nickname albo full_name,
+      wybieramy ten kontakt bez użycia LLM (np. 'rent', 'mom', 'Barbara Smith').
     """
     label = (label or "").strip()
     if not label:
@@ -33,6 +37,18 @@ def resolve_contact(db: Session, user_id: str, label: str) -> Optional[Contact]:
     if not contacts:
         return None
 
+    label_lower = label.lower()
+
+    # 1) Najpierw twarde dopasowanie po nickname / full_name
+    for c in contacts:
+        if c.nickname.lower() == label_lower or c.full_name.lower() == label_lower:
+            print(
+                f"[RESOLVE_CONTACT] Direct match for label={label!r} "
+                f"-> {c.full_name!r} (nickname={c.nickname!r})"
+            )
+            return c
+
+    # 2) Dopiero jeśli nie ma bezpośredniego matcha, używamy LLM
     contact_dicts = [
         {"nickname": c.nickname, "full_name": c.full_name} for c in contacts
     ]
@@ -121,6 +137,7 @@ def get_transactions_for_user(
         stmt = stmt.limit(limit)
 
     return db.execute(stmt).scalars().all()
+
 
 def get_last_transfer_to_contact(
     db: Session,

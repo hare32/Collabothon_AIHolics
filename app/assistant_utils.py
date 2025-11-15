@@ -1,6 +1,7 @@
 # app/assistant_utils.py
 from typing import Dict, List, Tuple
 from collections import defaultdict
+from dataclasses import dataclass
 import re
 
 
@@ -68,3 +69,22 @@ def extract_history_limit(message: str, default: int = 3, max_limit: int = 10) -
         return default
 
     return min(n, max_limit)
+
+
+# ======= PENDING TRANSFER STATE (for confirmations) =======
+
+
+@dataclass
+class PendingTransfer:
+    user_id: str
+    amount: float
+    recipient_name: str
+    recipient_iban: str
+    title: str
+    currency: str
+    # 1 = pierwsze pytanie o potwierdzenie, 2 = ostateczne potwierdzenie
+    confirmation_stage: int = 0
+
+
+# Per-user pending transfer waiting for confirmation
+pending_transfers: Dict[str, PendingTransfer] = {}
