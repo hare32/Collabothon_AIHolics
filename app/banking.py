@@ -1,4 +1,4 @@
-from typing import Optional, List, Sequence
+from typing import Optional, Sequence
 
 from sqlalchemy.orm import Session
 from sqlalchemy import select
@@ -36,7 +36,10 @@ def get_account_for_user(db: Session, user_id: str) -> Optional[Account]:
 
 
 def perform_transfer(
-    db: Session, user_id: str, amount: float, recipient_details: str
+    db: Session,
+    user_id: str,
+    amount: float,
+    recipient_details: str = "Nieznany odbiorca (asystent głosowy)",
 ) -> Account:
     """
     Wykonuje przelew (odejmuje saldo) I twprzy zapis transakcji.
