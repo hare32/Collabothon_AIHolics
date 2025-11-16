@@ -17,7 +17,7 @@ from ..config import (
     BACKEND_USER_ID,
 )
 from ..banking import get_user
-from ..assistant_utils import pending_transfers  # <-- ważne dla flow potwierdzeń
+from ..assistant_utils import pending_transfers
 
 router = APIRouter(prefix="/twilio", tags=["twilio"])
 
@@ -62,7 +62,6 @@ def twilio_voice(
         resp.hangup()
         return Response(str(resp), media_type="application/xml")
 
-    # First entry → greet user
     if not SpeechResult:
         print("[TWILIO] First entry – no SpeechResult yet")
         gather = Gather(
@@ -80,13 +79,10 @@ def twilio_voice(
         resp.say("I didn't hear anything. Goodbye.", language="en-US")
         return Response(str(resp), media_type="application/xml")
 
-    # DEBUG: pokaż, co przyszło z rozpoznawania mowy
     print(f"[TWILIO] SpeechResult from Twilio: {SpeechResult!r}")
 
-    # Process conversation
     reply, intent, end_call = process_message(SpeechResult, user_id, db)
 
-    # DEBUG: pokaż, co asystent odpowiedział
     print(f"[ASSISTANT] intent={intent}, end_call={end_call}, reply={reply!r}")
 
     resp.say(reply, language="en-US")
@@ -95,11 +91,9 @@ def twilio_voice(
         resp.hangup()
         return Response(str(resp), media_type="application/xml")
 
-    # Are we in the middle of a transfer confirmation flow?
     in_confirmation_flow = user_id in pending_transfers
     print(f"[ASSISTANT] in_confirmation_flow={in_confirmation_flow}")
 
-    # Wait for next user message
     gather = Gather(
         input="speech",
         language="en-US",
@@ -108,10 +102,6 @@ def twilio_voice(
         speech_timeout="auto",
     )
 
-    # Jeśli NIE jesteśmy w flow potwierdzenia przelewu,
-    # to ewentualnie dodajemy krótki prompt – ale tylko
-    # jeśli odpowiedź NIE kończy się już pytaniem typu
-    # "Is there anything else I can help you with?"
     if not in_confirmation_flow:
         lower_reply = (reply or "").lower()
         if "anything else i can help you with" not in lower_reply:

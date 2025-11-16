@@ -1,12 +1,8 @@
-# app/assistant_utils.py
 from typing import Dict, List, Tuple
 from collections import defaultdict
 from dataclasses import dataclass
 import re
 
-
-# ======= SIMPLE PER-USER CONVERSATION HISTORY =======
-# List of pairs: ("user" | "assistant", text)
 ConversationHistory = Dict[str, List[Tuple[str, str]]]
 conversation_history: ConversationHistory = defaultdict(list)
 
@@ -19,7 +15,7 @@ def store_history(user_id: str, user_msg: str, reply: str) -> str:
     history = conversation_history[user_id]
     history.append(("user", user_msg))
     history.append(("assistant", reply))
-    if len(history) > 20:  # 10 user–assistant exchanges
+    if len(history) > 20:
         del history[:-20]
     return reply
 
@@ -71,9 +67,6 @@ def extract_history_limit(message: str, default: int = 3, max_limit: int = 10) -
     return min(n, max_limit)
 
 
-# ======= PENDING TRANSFER STATE (for confirmations) =======
-
-
 @dataclass
 class PendingTransfer:
     user_id: str
@@ -82,9 +75,7 @@ class PendingTransfer:
     recipient_iban: str
     title: str
     currency: str
-    # 1 = pierwsze pytanie o potwierdzenie, 2 = ostateczne potwierdzenie
     confirmation_stage: int = 0
 
 
-# Per-user pending transfer waiting for confirmation
 pending_transfers: Dict[str, PendingTransfer] = {}
