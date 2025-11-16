@@ -42,11 +42,8 @@ class VoiceAuthenticator:
         if step == 2:
             return self._handle_pin_step(resp, user_id, user, digits)
 
-        # Already authenticated
         resp.redirect("/twilio/voice")
         return resp
-
-    # === Steps ===
 
     def _handle_name_step(self, resp, user_id, user, cleaned):
         if user.name.lower().replace(" ", "") in cleaned:
@@ -86,8 +83,6 @@ class VoiceAuthenticator:
         return self._retry(
             resp, user_id, "Incorrect PIN. Please repeat your four-digit PIN."
         )
-
-    # === Helpers ===
 
     def _ask(self, resp: VoiceResponse, action: str, text: str) -> VoiceResponse:
         gather = self._gather(action)

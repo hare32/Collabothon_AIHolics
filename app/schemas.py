@@ -30,7 +30,7 @@ class AccountOut(BaseModel):
 
 
 class TransferRequest(BaseModel):
-    user_id: str  # Sender
+    user_id: str
     amount: float
     recipient_name: str
     recipient_iban: str

@@ -1,3 +1,5 @@
+# This helper does not work well todo -> remove or correct later
+
 import asyncio
 from typing import Any, Optional
 
@@ -39,7 +41,6 @@ async def main() -> None:
     print("Banking assistant (VOICE). Say 'stop' to finish.\n")
 
     while True:
-        # --- RECORD VOICE ---
         try:
             with sr.Microphone() as source:
                 print("Listening... (speak in English)")
@@ -56,7 +57,6 @@ async def main() -> None:
             return
 
         try:
-            # --- STT: SPEECH -> TEXT ---
             rec: Any = recognizer
             text = rec.recognize_google(audio, language="en-US")
             text = text.strip()
@@ -72,10 +72,8 @@ async def main() -> None:
             print("Ending the conversation.")
             break
 
-        # --- SEND TO BACKEND ---
         reply = await send_to_backend(text)
 
-        # --- TTS: TEXT -> SPEECH (if available) ---
         if tts_engine is not None:
             tts_engine.say(reply)
             tts_engine.runAndWait()
