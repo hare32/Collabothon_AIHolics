@@ -1,13 +1,9 @@
-from typing import List
-from typing import Optional, Sequence
+from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
-from typing import Optional, Sequence
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 
-from ..models import User, Account, Transaction, Contact
-from ..llm import match_contact_label
+from ..models import Transaction
 from ..db import get_db
 from .. import banking
 from ..schemas import TransactionOut, TransferRequest, AccountOut
@@ -32,7 +28,6 @@ def create_transfer(request: TransferRequest, db: Session = Depends(get_db)):
         )
         return account
     except ValueError as e:
-        # Validation errors from banking.py (e.g. insufficient funds)
         raise HTTPException(status_code=400, detail=str(e))
 
 
@@ -51,7 +46,7 @@ def get_last_transfer_to_contact(
     recipient_name: str,
 ) -> Optional[Transaction]:
     """
-    Zwraca ostatni przelew do danego odbiorcy (po nazwie), jeśli istnieje.
+    Returns the last transfer to a given recipient by name, if it exists.
     """
     stmt = (
         select(Transaction)

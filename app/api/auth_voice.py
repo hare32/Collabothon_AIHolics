@@ -35,7 +35,6 @@ def auth_voice(
         resp.hangup()
         return Response(str(resp), media_type="application/xml")
 
-    # Initial: no speech -> start authentication
     if not SpeechResult:
         authenticator.reset(user_id)
         gather = Gather(
@@ -50,6 +49,5 @@ def auth_voice(
         resp.say("No speech detected. Goodbye.")
         return Response(str(resp), media_type="application/xml")
 
-    # Continue auth flow
     response_obj = authenticator.handle(user_id, SpeechResult, user)
     return Response(str(response_obj), media_type="application/xml")

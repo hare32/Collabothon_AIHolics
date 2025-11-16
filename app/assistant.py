@@ -1,4 +1,3 @@
-# app/assistant.py
 from typing import Optional, Tuple, List
 
 from sqlalchemy.orm import Session
@@ -35,17 +34,13 @@ def process_message(
 
     Returns (reply, intent, end_call).
     """
-
-    # conversation history for this user
     history = conversation_history[user_id]
 
-    # high-level dialog act: confirm / reject / end_call
     dialog_act = detect_confirmation_or_end(message, history)
 
     user = banking.get_user(db, user_id)
     account = banking.get_account_for_user(db, user_id)
 
-    # ---------- PENDING TRANSFER CONFIRMATION FLOW ----------
     if user_id in pending_transfers:
         pending = pending_transfers[user_id]
 
@@ -55,9 +50,7 @@ def process_message(
             f"amount={pending.amount}, recipient={pending.recipient_name!r}"
         )
 
-        # user clearly wants to end the call while transfer is pending
         if dialog_act == "end_call":
-            # safety: DO NOT execute transfer
             del pending_transfers[user_id]
             reply = (
                 "Okay, I will not make this transfer. "
@@ -65,10 +58,8 @@ def process_message(
             )
             return store_history(user_id, message, reply), "make_transfer", True
 
-        # user clearly confirms
         if dialog_act == "confirm":
             if pending.confirmation_stage == 1:
-                # go to final confirmation
                 pending.confirmation_stage = 2
                 amount_text = format_amount_pln(pending.amount)
                 reply = (
@@ -80,7 +71,6 @@ def process_message(
                 return store_history(user_id, message, reply), "make_transfer", False
 
             if pending.confirmation_stage == 2:
-                # perform transfer now
                 try:
                     banking.perform_transfer(
                         db,
@@ -111,7 +101,6 @@ def process_message(
                 del pending_transfers[user_id]
                 return store_history(user_id, message, reply), "make_transfer", False
 
-        # user clearly rejects
         if dialog_act == "reject":
             del pending_transfers[user_id]
             reply = (
@@ -121,7 +110,6 @@ def process_message(
             print("[PENDING] Transfer rejected by user")
             return store_history(user_id, message, reply), "make_transfer", False
 
-        # neither confirm nor reject nor end_call → ask again (model was unsure)
         reply = (
             "Please clearly confirm if you want to make this transfer, "
             "or say that you do not want it."
@@ -129,11 +117,9 @@ def process_message(
         print("[PENDING] Unclear confirmation, asking again")
         return store_history(user_id, message, reply), "make_transfer", False
 
-    # ---------- INTENT DETECTION (with history) ----------
     intent = detect_intent(message, history)
     print(f"[INTENT] message={message!r}, intent={intent!r}, dialog_act={dialog_act!r}")
 
-    # ---------- INTENT: MAKE TRANSFER ----------
     if intent == "make_transfer":
         if account is None:
             reply = "I couldn't find an account for this user."
@@ -142,7 +128,6 @@ def process_message(
 
         print(f"[MAKE_TRANSFER] user_id={user_id}, message={message!r}")
 
-        # 1. Recipient
         recipient_label = extract_recipient(message, history)
         print(f"[MAKE_TRANSFER] extracted recipient_label={recipient_label!r}")
 
@@ -170,14 +155,12 @@ def process_message(
         title = contact.default_title or f"Transfer to {contact.full_name}"
         pretty_label = f"{contact.full_name} ({contact.nickname})"
 
-        # 2. Amount
         amount = extract_amount(message)
         used_last_amount = False
         last_title = title
 
         print(f"[MAKE_TRANSFER] initial parsed amount={amount}")
 
-        # if no amount → check if user refers to "same amount as last time"
         if amount is None or amount <= 0:
             print(
                 "[MAKE_TRANSFER] No valid amount detected, "
@@ -200,13 +183,14 @@ def process_message(
             f"used_last_amount={used_last_amount}"
         )
 
-        # still no sensible amount → ask user
         if amount is None or amount <= 0:
-            reply = "I understand you want to make a transfer, but I couldn't detect the amount. "
+            reply = (
+                "I understand you want to make a transfer, "
+                "but I couldn't detect the amount. "
+            )
             print("[MAKE_TRANSFER] Still no valid amount, asking user again")
             return store_history(user_id, message, reply), intent, False
 
-        # 3. Do NOT execute transfer yet – create pending transfer and ask for confirmation
         pending = PendingTransfer(
             user_id=user_id,
             amount=amount,
@@ -234,7 +218,6 @@ def process_message(
         print(f"[MAKE_TRANSFER] reply={reply!r}")
         return store_history(user_id, message, reply), intent, False
 
-    # ---------- INTENT: CHECK BALANCE ----------
     if intent == "check_balance":
         if account is None:
             reply = "I couldn't find an account for this user."
@@ -243,7 +226,6 @@ def process_message(
             reply = f"Your current balance is {account.balance:.2f} {account.currency} "
             print(f"[CHECK_BALANCE] reply={reply!r}")
 
-        # user also clearly ends the call in same sentence
         if dialog_act == "end_call":
             reply = reply + " Thank you for using our banking assistant. Goodbye."
             print("[CHECK_BALANCE] end_call in same utterance")
@@ -251,9 +233,7 @@ def process_message(
 
         return store_history(user_id, message, reply), intent, False
 
-    # ---------- INTENT: SHOW HISTORY ----------
     if intent == "show_history":
-        # how many last transfers? (default 3)
         limit = extract_history_limit(message, default=3, max_limit=10)
         print(f"[SHOW_HISTORY] limit={limit}")
         transactions = banking.get_transactions_for_user(db, user_id, limit=limit)
@@ -283,9 +263,6 @@ def process_message(
 
         return store_history(user_id, message, reply), intent, False
 
-    # ---------- OTHER QUESTIONS → LLM ----------
-    # if user just closes the conversation ('thank you, that's all'),
-    # we don't need to call LLM – just say goodbye
     if dialog_act == "end_call":
         reply = "Thank you for using our banking assistant. Goodbye."
         print("[OTHER] end_call without banking intent")

@@ -1,4 +1,3 @@
-# app/banking.py
 from typing import Optional, Sequence
 
 from sqlalchemy.orm import Session
@@ -21,12 +20,8 @@ def get_account_for_user(db: Session, user_id: str) -> Optional[Account]:
 def resolve_contact(db: Session, user_id: str, label: str) -> Optional[Contact]:
     """
     Uses LLM (match_contact_label) to map a phrase from speech to one of the contacts.
-    Example:
-      label: 'to my mom'  -> LLM picks nickname 'mom'  -> contact 'Barbara Smith'
-
-    Dodatkowo:
-    - jeżeli label dokładnie pasuje do nickname albo full_name,
-      wybieramy ten kontakt bez użycia LLM (np. 'rent', 'mom', 'Barbara Smith').
+    If the label exactly matches nickname or full_name (case-insensitive),
+    that contact is chosen without using the LLM.
     """
     label = (label or "").strip()
     if not label:
@@ -39,7 +34,6 @@ def resolve_contact(db: Session, user_id: str, label: str) -> Optional[Contact]:
 
     label_lower = label.lower()
 
-    # 1) Najpierw twarde dopasowanie po nickname / full_name
     for c in contacts:
         if c.nickname.lower() == label_lower or c.full_name.lower() == label_lower:
             print(
@@ -48,7 +42,6 @@ def resolve_contact(db: Session, user_id: str, label: str) -> Optional[Contact]:
             )
             return c
 
-    # 2) Dopiero jeśli nie ma bezpośredniego matcha, używamy LLM
     contact_dicts = [
         {"nickname": c.nickname, "full_name": c.full_name} for c in contacts
     ]
@@ -59,12 +52,10 @@ def resolve_contact(db: Session, user_id: str, label: str) -> Optional[Contact]:
 
     chosen_lower = chosen.strip().lower()
 
-    # Try by nickname first (case-insensitive)
     for c in contacts:
         if c.nickname.lower() == chosen_lower:
             return c
 
-    # If the model returned full name instead of nickname, try by full_name
     for c in contacts:
         if c.full_name.lower() == chosen_lower:
             return c
@@ -98,7 +89,6 @@ def perform_transfer(
         raise ValueError("Recipient name is missing.")
 
     if not recipient_iban:
-        # in a real bank this would be a hard error
         raise ValueError("Recipient IBAN is missing.")
 
     account.balance -= amount
@@ -124,7 +114,7 @@ def get_transactions_for_user(
     limit: Optional[int] = None,
 ) -> Sequence[Transaction]:
     """
-    Returns transaction history where the user is the SENDER.
+    Returns transaction history where the user is the sender.
     If limit is provided, returns at most 'limit' most recent transactions.
     """
     stmt = (
@@ -145,7 +135,7 @@ def get_last_transfer_to_contact(
     recipient_name: str,
 ) -> Optional[Transaction]:
     """
-    Zwraca ostatni przelew do danego odbiorcy (po nazwie), jeśli istnieje.
+    Returns the last transfer to a given recipient by name, if it exists.
     """
     stmt = (
         select(Transaction)

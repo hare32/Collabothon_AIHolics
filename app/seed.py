@@ -1,4 +1,3 @@
-# app/seed.py
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 
@@ -13,17 +12,15 @@ def seed_demo_data(db: Session) -> None:
     if db.execute(select(User)).first():
         return
 
-    # --- USER ---
     user = User(
         id="user-1",
         name="John Smith",
-        pesel="12345678901",  # demo data for auth
-        pin_code="4321",  # demo PIN for auth
+        pesel="12345678901",
+        pin_code="4321",
         phone="+48123123123",
     )
     db.add(user)
 
-    # --- ACCOUNT (start at 4000, then subtract transactions => ~?)
     acc = Account(
         id="acc-1",
         user_id="user-1",
@@ -33,7 +30,6 @@ def seed_demo_data(db: Session) -> None:
     )
     db.add(acc)
 
-    # --- CONTACTS (saved recipients) ---
     contacts = [
         Contact(
             user_id="user-1",
@@ -70,10 +66,9 @@ def seed_demo_data(db: Session) -> None:
             iban="PL12109010140000071219800000",
             default_title="Payment to child support fund",
         ),
-        # KLUCZOWY KONTAKT DO DEMA – RENT
         Contact(
             user_id="user-1",
-            nickname="rent",  # <--- ważne, żeby LLM mógł skojarzyć "the rent"
+            nickname="rent",
             full_name="Green Housing Cooperative",
             iban="PL34175000120000000012345678",
             default_title="Apartment rent",
@@ -82,14 +77,12 @@ def seed_demo_data(db: Session) -> None:
     for c in contacts:
         db.add(c)
 
-    # --- SAMPLE HISTORY TRANSACTIONS ---
-    # Pierwsza transakcja: czynsz 700 PLN do Green Housing Cooperative
     initial_transactions = [
         (
             "Green Housing Cooperative",
             "PL34175000120000000012345678",
             "Apartment rent",
-            700.0,  # <--- kwota "jak w przykładzie"
+            700.0,
         ),
         (
             "PGE Energy",
@@ -156,6 +149,6 @@ def seed_demo_data(db: Session) -> None:
             amount=amount,
         )
         db.add(tx)
-        acc.balance -= amount  # history actually reduces the balance
+        acc.balance -= amount
 
     db.commit()

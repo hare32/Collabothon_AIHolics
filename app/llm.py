@@ -28,7 +28,7 @@ def detect_intent(message: str, history: Optional[List[Tuple[str, str]]] = None)
     - "check_balance"   -> user wants to check account balance
     - "show_history"    -> user wants to see transfer history / recent transactions
     - "other"           -> anything else
-    The customer may speak English (and simple Polish phrases).
+    The customer speaks English.
     """
 
     # ===== RULE-BASED SHORTCUT BEFORE LLM =====
@@ -47,7 +47,7 @@ def detect_intent(message: str, history: Optional[List[Tuple[str, str]]] = None)
         "child support fund",
     ]
 
-    # Kombinacja czasownik + typowy odbiorca = na pewno przelew
+    # Combination of transfer verb + typical recipient = definitely a transfer
     if any(v in msg_lower for v in transfer_verbs) and any(
         t in msg_lower for t in transfer_targets
     ):
@@ -57,7 +57,7 @@ def detect_intent(message: str, history: Optional[List[Tuple[str, str]]] = None)
         )
         return "make_transfer"
 
-    # Frazy typu "same amount as last time" razem z czasownikiem przelewu
+    # Phrases like "same amount as last time" together with a transfer verb
     if ("same amount" in msg_lower or "same money" in msg_lower) and any(
         v in msg_lower for v in transfer_verbs
     ):
@@ -80,7 +80,7 @@ def detect_intent(message: str, history: Optional[List[Tuple[str, str]]] = None)
 
     system_prompt = (
         "You are an intent classifier in a banking voice assistant.\n"
-        "The customer speaks English (and might sometimes use Polish words). "
+        "The customer speaks English. "
         "Based on the conversation, return ONLY one word:\n"
         "- make_transfer  if the customer wants to make a transfer or send money\n"
         "- check_balance  if the customer asks about balance, account status, how much money they have\n"
@@ -88,23 +88,8 @@ def detect_intent(message: str, history: Optional[List[Tuple[str, str]]] = None)
         "- other          if the utterance does not match the above\n\n"
         "Take conversation history into account, e.g. if the customer previously talked about a transfer,\n"
         "and now only says an amount ('50'), the intent is still make_transfer.\n\n"
-        "Do not say whole bank numbers when confirming a transfer or giving customer's balance.\n"
-        "Examples:\n"
-        "U: Send 50 to my neighbor\n"
-        "A: make_transfer\n"
-        "U: Make a transfer of 50 to my neighbor\n"
-        "A: make_transfer\n"
-        "U: How much money do I have?\n"
-        "A: check_balance\n"
-        "U: What's my balance?\n"
-        "A: check_balance\n"
-        "U: What were my last transfers?\n"
-        "A: show_history\n"
-        "U: Show my transaction history\n"
-        "A: show_history\n"
-        "U: Tell me a joke\n"
-        "A: other\n"
-        "Do not add any explanations, comments or extra text."
+        "Do not add any explanations, comments or extra text.\n"
+        "Respond with the intent label only."
     )
 
     if history_text:
@@ -130,7 +115,7 @@ def detect_intent(message: str, history: Optional[List[Tuple[str, str]]] = None)
         content = completion.choices[0].message.content or ""
         intent_raw = content.strip().lower()
 
-        mapping = {
+        mapping: Dict[str, str] = {
             "make_transfer": "make_transfer",
             "check_balance": "check_balance",
             "show_history": "show_history",
@@ -170,19 +155,17 @@ def extract_recipient(
 
     msg_lower = (message or "").lower()
 
-    # ===== RULE-BASED ODBIORCA DLA CZYNSZU =====
-    # Wszystkie warianty typu "pay the rent", "apartment rent", "rent payment" itd.
+    # ===== RULE-BASED RECIPIENT FOR RENT =====
+    # Phrases like "pay the rent", "apartment rent", "rent payment", etc.
     if "rent" in msg_lower or "housing cooperative" in msg_lower:
-        # Mamy w seedzie kontakt o nicku 'rent' -> Green Housing Cooperative
+        # In seed we have contact with nickname 'rent' -> Green Housing Cooperative
         print(
             f"[RECIPIENT-RULE] Forced recipient 'rent' for message={message!r} "
             "(rent/housing keyword)"
         )
         return "rent"
 
-    # (Tu można później dopisać inne twarde reguły, np. 'child support fund', itp.)
-
-    # ===== STANDARD LLM-BASED EKSTRAKCJA =====
+    # ===== STANDARD LLM-BASED EXTRACTION =====
 
     history_text = ""
     if history:
@@ -339,14 +322,12 @@ def refers_to_same_amount_as_last_time(
     message: str, history: Optional[List[Tuple[str, str]]] = None
 ) -> bool:
     """
-    Zwraca True, jeśli z wypowiedzi wynika, że user chce użyć
-    TAKIEJ SAMEJ KWOTY jak poprzednio (np. do tego samego odbiorcy).
-    Np.:
-      - "for the same amount as last time"
-      - "for the same amount I made this time"
-      - "same amount as the last transfer to my mom"
-      - "taka sama kwota jak ostatnio"
-      - "za kwotę za którą ostatnio go wysłałem"
+    Returns True if the utterance indicates the user wants to use
+    THE SAME AMOUNT as in a previous transfer.
+    Examples that should be treated as YES:
+      - 'for the same amount as last time'
+      - 'for the same amount I made this time'
+      - 'same amount as the last transfer to my mom'
     """
 
     history_text = ""
@@ -364,9 +345,7 @@ def refers_to_same_amount_as_last_time(
         "Examples that mean YES:\n"
         "- 'for the same amount as last time'\n"
         "- 'for the same amount I made this time'\n"
-        "- 'same amount as the last transfer to my mom'\n"
-        "- 'taka sama kwota jak ostatnio'\n"
-        "- 'za kwotę za którą ostatnio go wysłałem'\n\n"
+        "- 'same amount as the last transfer to my mom'\n\n"
         "Examples that mean NO:\n"
         "- 'send 50 PLN to my mom'\n"
         "- 'send all my money to my mom'\n"
@@ -415,7 +394,7 @@ def detect_confirmation_or_end(
     - "end_call"  -> user clearly finishes the conversation (thank you, that's all, goodbye)
     - "none"      -> none of the above
 
-    The customer may speak English or Polish.
+    The customer speaks English.
     Return ONLY one of: confirm, reject, end_call, none
     """
 
@@ -430,7 +409,7 @@ def detect_confirmation_or_end(
 
     system_prompt = (
         "You are a classifier in a banking voice assistant.\n"
-        "The customer may speak English or Polish.\n"
+        "The customer speaks English.\n"
         "Your task is to classify the customer's LAST sentence into one of four labels:\n"
         "- confirm   -> the customer clearly confirms the previous action or proposal\n"
         "- reject    -> the customer clearly rejects or cancels the previous action or proposal\n"
@@ -438,22 +417,14 @@ def detect_confirmation_or_end(
         "- none      -> anything else\n\n"
         "Use the conversation history to understand what is being confirmed or rejected.\n"
         "Return EXACTLY ONE WORD: confirm, reject, end_call, or none.\n\n"
-        "Examples (English):\n"
+        "Examples:\n"
         "U: Yes, please do it.       -> confirm\n"
         "U: Okay, go ahead.          -> confirm\n"
         "U: No, cancel that.         -> reject\n"
         "U: I don't want that.       -> reject\n"
         "U: Thank you, that's all.   -> end_call\n"
         "U: Thanks, goodbye.         -> end_call\n"
-        "U: Tell me a joke.          -> none\n\n"
-        "Examples (Polish):\n"
-        "U: Tak, potwierdzam.        -> confirm\n"
-        "U: Dobrze, zrób to.         -> confirm\n"
-        "U: Nie, rezygnuję.          -> reject\n"
-        "U: Nie rób tego przelewu.   -> reject\n"
-        "U: Dziękuję, to wszystko.   -> end_call\n"
-        "U: Dzięki, do widzenia.     -> end_call\n"
-        "U: Opowiedz mi żart.        -> none\n"
+        "U: Tell me a joke.          -> none\n"
     )
 
     if history_text:

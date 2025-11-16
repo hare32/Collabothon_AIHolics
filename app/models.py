@@ -12,7 +12,6 @@ class User(Base):
 
     id: Mapped[str] = mapped_column(String, primary_key=True, index=True)
     name: Mapped[str] = mapped_column(String, nullable=False)
-    # NEW: fields needed for voice auth
     pesel: Mapped[str] = mapped_column(String, nullable=False)
     pin_code: Mapped[str] = mapped_column(String, nullable=False)
     phone: Mapped[str] = mapped_column(String, nullable=False)
@@ -37,17 +36,9 @@ class Contact(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
-
-    # e.g. 'mom', 'grandson', 'neighbor'
     nickname: Mapped[str] = mapped_column(String, nullable=False)
-
-    # full name / organization name
     full_name: Mapped[str] = mapped_column(String, nullable=False)
-
-    # recipient account number
     iban: Mapped[str] = mapped_column(String, nullable=False)
-
-    # default transfer title, if none is provided
     default_title: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
 
@@ -56,12 +47,9 @@ class Transaction(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     sender_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
-
-    # recipient data frozen at transfer time
     recipient_name: Mapped[str] = mapped_column(String, nullable=False)
     recipient_iban: Mapped[str] = mapped_column(String, nullable=False)
     title: Mapped[str] = mapped_column(String, nullable=False)
-
     amount: Mapped[float] = mapped_column(Float, nullable=False)
     timestamp: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
