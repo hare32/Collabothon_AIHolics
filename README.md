@@ -120,59 +120,45 @@ curl http://127.0.0.1:8000/health
 # -> {"status": "ok"}
 ```
 
-## Twilio Voice setup
+## Twilio Voice setup (phone calls)
+
+The system is designed to be used primarily **via a real phone call**.  
+A caller dials a Twilio phone number, goes through voice authentication, and then interacts with the banking assistant.
 
 ### 1. Expose your local server (ngrok)
 
-Twilio must reach your backend from the internet.
-
-Example with `ngrok`:
+Twilio must be able to access your backend from the public internet.
 
 ```bash
 ngrok http 8000
 ```
 
-You will get a public URL like:
+This will give you a public URL, for example:
 
-```text
+```
 https://abcd-1234.eu.ngrok.io
 ```
 
-We’ll call this **PUBLIC_URL**.
+We will refer to this as **PUBLIC_URL**.
 
-### 2. Configure TwiML App (Twilio Console)
+---
 
-In the Twilio console:
+### 2. Configure TwiML App & connect a phone number (Twilio Console)
+
+In the Twilio Console:
 
 1. Create a **TwiML App** (or use an existing one).
-2. Set:
 
-   - **Voice URL** (Request URL): `https://PUBLIC_URL/auth/voice`
-   - HTTP method: `POST`
+2. Set the **Voice Request URL** to your authentication endpoint:
 
-3. Save the TwiML App and copy its **SID** – this is your `TWIML_APP_SID`.
+3. Save the TwiML App and copy its **SID** — this becomes your `TWIML_APP_SID`.
 
-> The authentication flow entrypoint is `/auth/voice`. After success, it redirects to `/twilio/voice`.
+4. Assign the TwiML App to a **Twilio phone number** under _Voice & Fax → A CALL COMES IN_.
+   Now every time someone calls this number, Twilio will invoke your server.
 
-### 3. Put Twilio credentials in `.env`
+From the user’s perspective, it works like a normal phone call to a bank helpline.
 
-Use the `.env` example above.
-
-### 4. Browser Voice client (index.html)
-
-With the backend running and `ngrok` in place:
-
-1. Open `http://127.0.0.1:8000/` in a browser.
-2. The frontend (`index.html`) will:
-
-   - Fetch a token from `GET /twilio/token`
-   - Initialize `Twilio.Device` with `TWIML_APP_SID`
-   - On click **“Call AI”**, place an outgoing call to the TwiML App
-
-3. The TwiML App hits `https://PUBLIC_URL/auth/voice`:
-
-   - Authentication starts
-   - On success, user is redirected to `/twilio/voice` where the banking assistant takes over
+---
 
 ## Helpers
 
