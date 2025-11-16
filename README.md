@@ -1,6 +1,6 @@
 # VERA - Voice Enabled Reliable Assistant
 
-**(AI)holics** solution for 2025 Commarzbank Collabothon challenge.
+🏆 Winner of **Commerzbank Collabothon 2025** – AI for Inclusion in Digital Finance
 
 Built with:
 
